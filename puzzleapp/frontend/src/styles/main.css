@@ -1,0 +1,62 @@
+:root { --sidebar-w: 360px; --canvas-h: calc(100vh - 56px - 32px); }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Arial, sans-serif; background: #f5f5f7; color: #222; }
+header { height: 56px; display:flex; align-items:center; justify-content:space-between;
+  padding:0 16px; background:#fff; border-bottom:1px solid #e5e5ea; position:sticky; top:0; z-index:3; }
+header h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.2px; }
+.subtitle { font-size:12px; color:#666; }
+.header-right { display:flex; align-items:center; gap:12px; }
+.lang-switch { display:flex; gap:6px; }
+.lang-btn { border:1px solid #d0d0d5; background:#fff; border-radius:999px; padding:4px 6px; cursor:pointer; font-size:14px; line-height:1; }
+.lang-btn.active { border-color:#111; box-shadow:0 2px 6px rgba(0,0,0,.12); }
+#root { display:grid; grid-template-columns: 1fr var(--sidebar-w); min-height: calc(100vh - 56px); }
+#stage { padding:16px; display:flex; justify-content:center; align-items:stretch; }
+#board { width: calc(100% - 0px); max-width:1100px; height: var(--canvas-h); background:#fff; border:2px solid #222;
+  border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,.08); overflow:hidden; }
+#canvasHost { width:100%; height:100%; background:#fff; }
+
+.start-screen { position: fixed; inset: 56px 0 0 0; z-index: 5; background: rgba(245,245,247,0.98);
+  display:flex; align-items:stretch; justify-content:center; padding:24px; }
+.start-inner { width: min(1100px, 96vw); background:#fff; border:1px solid #e5e5ea; border-radius:14px;
+  box-shadow:0 10px 28px rgba(0,0,0,.12); display:grid; grid-template-columns: 1.4fr .6fr; gap:20px; padding:20px; }
+.start-left h2 { margin:0 0 6px; font-size:20px; }
+.start-hint { margin:0 0 16px; color:#666; font-size:13px; }
+.gallery-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:12px; }
+.gallery-card { border:1px solid #e5e5ea; border-radius:10px; overflow:hidden; background:#fafafa; cursor:pointer; text-align:left; }
+.gallery-card.selected { border-color:#111; box-shadow:0 4px 12px rgba(0,0,0,.12); }
+.gallery-card img { width:100%; height:120px; object-fit:cover; display:block; background:#ddd; }
+.gallery-card .card-body { padding:10px; }
+.gallery-card .title { font-weight:600; font-size:14px; margin:0 0 6px; }
+.gallery-card .sizes { font-size:12px; color:#666; }
+.start-right { display:flex; flex-direction:column; gap:12px; }
+.size-options { display:flex; flex-wrap:wrap; gap:8px; min-height:36px; }
+.size-btn { padding:8px 10px; border:1px solid #ccc; border-radius:999px; background:#fff; cursor:pointer; font-size:13px; }
+.size-btn.selected { border-color:#111; background:#111; color:#fff; }
+body.game-started .start-screen { display:none; }
+
+aside { border-left:1px solid #e5e5ea; background:#fafafa; position:relative; overflow:hidden; }
+.side-inner { position:absolute; inset:0; display:flex; flex-direction:column; }
+.side-header { padding:12px 14px; border-bottom:1px solid #e5e5ea; background:#fff; display:flex; align-items:center; gap:8px; font-weight:600; }
+.side-scroll { padding:12px 14px; overflow-y:auto; flex:1; }
+.group { margin-bottom:16px; padding:12px; background:#fff; border:1px solid #e5e5ea; border-radius:8px; }
+.group h3 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.6px; color:#666; }
+.row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:8px 0; }
+.row input[type="range"] { width: 160px; }
+button.primary { width:100%; padding:10px 12px; border:1px solid #111; background:#111; color:#fff; border-radius:8px; cursor:pointer; }
+button.ghost { width:100%; padding:8px 12px; border:1px solid #ccc; background:#fff; color:#222; border-radius:8px; cursor:pointer; }
+.hint { font-size:12px; color:#666; margin-top:6px; }
+#toggleAside { position: fixed; right: 16px; bottom: 16px; z-index: 4; border:1px solid #d0d0d5; background:#fff;
+  border-radius:999px; padding:10px 14px; box-shadow:0 4px 14px rgba(0,0,0,.12); cursor:pointer; }
+body.aside-collapsed #root { grid-template-columns: 1fr 0; }
+body.aside-collapsed aside { width: 0; }
+@media (max-width: 1100px) {
+  :root { --sidebar-w: 0px; }
+  .start-inner { grid-template-columns: 1fr; }
+  #toggleAside { display:block; }
+  #root { grid-template-columns: 1fr; }
+  aside { position: fixed; top: 56px; right: 0; bottom: 0; width: 360px; transform: translateX(100%); transition: transform .25s ease; }
+  body.aside-open aside { transform: translateX(0); }
+}
+@media (max-width: 720px) {
+  .header-right { flex-direction:column; align-items:flex-end; gap:6px; }
+}

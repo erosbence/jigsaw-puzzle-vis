@@ -1,0 +1,48 @@
+import { wireControls } from "./ui/controls.js";
+import { drawBackground, drawPiece } from "./canvas/draw.js";
+import { styleState, setCanvasSize } from "./canvas/state.js";
+import { clampPiece, groupAlphaHit, targetTopLeft, shufflePieces } from "./canvas/interaction.js";
+import { Group } from "./canvas/group.js";
+
+function canvasHostSize() {
+  const host = document.getElementById('canvasHost');
+  return { w: host.clientWidth, h: host.clientHeight };
+}
+
+window.setup = function () {
+  const { w, h } = canvasHostSize();
+  setCanvasSize(w, h);
+  createCanvas(w, h).parent('canvasHost');
+  pixelDensity(1); background(245); noLoop();
+
+  // Globális horgok
+  window.__clampPiece = (p) => { clampPiece(p); };
+  window.__groupAlphaHit = (g, x, y) => groupAlphaHit(g, x, y);
+  window.__targetTopLeft  = (p) => targetTopLeft(p);
+  window.__shuffle = () => shufflePieces((p) => new Group(p));
+  window.__pieces = []; window.__groups = [];
+  window.__dragging = null; window.__dragDX = 0; window.__dragDY = 0;
+
+  wireControls();
+
+  const resizeCanvasToHost = () => {
+    const { w: nw, h: nh } = canvasHostSize();
+    setCanvasSize(nw, nh);
+    resizeCanvas(nw, nh);
+    redraw();
+  };
+
+  const ro = new ResizeObserver(() => resizeCanvasToHost());
+  ro.observe(document.getElementById('canvasHost'));
+
+  window.addEventListener('resize', resizeCanvasToHost);
+};
+
+window.draw = function () {
+  drawBackground(width, height);
+  for (const g of (window.__groups || [])) g.draw(window.__drawPiece || drawPiece);
+};
+
+window.mousePressed = () => window.__onMousePressed && window.__onMousePressed();
+window.mouseDragged = () => window.__onMouseDragged && window.__onMouseDragged();
+window.mouseReleased = () => window.__onMouseReleased && window.__onMouseReleased();
