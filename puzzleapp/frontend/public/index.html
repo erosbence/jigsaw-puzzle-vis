@@ -11,10 +11,6 @@
     <h1 data-i18n="title2">🧩 Jigsaw Puzzle Vis</h1>
     <div class="header-right">
       <div class="subtitle" data-i18n="subtitle">A visual analytics system for jigsaw game performance analysis</div>
-      <div id="timerWrap" class="timer-wrap">
-        <span class="timer-label" data-i18n="timerLabel">Idő</span>
-        <span id="timerDisplay" class="timer-display">00:00:00</span>
-      </div>
       <div class="lang-switch">
         <button class="lang-btn" type="button" data-lang="hu" aria-label="Magyar">🇭🇺</button>
         <button class="lang-btn" type="button" data-lang="en" aria-label="English">🇬🇧</button>
@@ -44,39 +40,58 @@
     </main>
     <aside>
       <div class="side-inner">
-        <div class="side-header" data-i18n="settingsTitle">Beállítások</div>
+        <div class="side-header">
+          <span id="sideTitle" data-i18n="settingsTitle">Beállítások</span>
+          <div class="side-tabs">
+            <button id="tabSettings" type="button" class="tab active" data-i18n="settingsTitle">Beállítások</button>
+            <button id="tabAnalytics" type="button" class="tab" data-i18n="analyticsTitle">Analitika</button>
+          </div>
+        </div>
         <div class="side-scroll">
-          <div class="group">
-            <h3 data-i18n="puzzleGroup">Puzzle</h3>
-            <div class="row"><button id="openGallery" class="ghost" type="button" data-i18n="openGallery">Galéria megnyitása</button></div>
-          </div>
+          <div id="settingsPanel" class="side-panel active">
+            <div class="group">
+              <h3 data-i18n="puzzleGroup">Puzzle</h3>
+              <div class="row"><button id="openGallery" class="ghost" type="button" data-i18n="openGallery">Galéria megnyitása</button></div>
+            </div>
 
-          <div class="group">
-            <h3 data-i18n="snapGroup">Mozgatás / Snap</h3>
-            <div class="row"><label for="snapToggle" data-i18n="snapToOrigin">Snap az eredeti helyre</label><input type="checkbox" id="snapToggle" checked /></div>
-            <div class="row"><label for="snapPct" data-i18n="snapThreshold">Snap küszöb</label><input type="range" id="snapPct" min="0" max="100" value="40" /></div>
-            <div class="row"><button id="shuffle" class="ghost" type="button" data-i18n="shuffle">Szétkeverés</button></div>
-            <div class="row"><button id="clear" class="ghost" type="button" data-i18n="clear">Törlés</button></div>
-          </div>
+            <div class="group">
+              <h3 data-i18n="snapGroup">Mozgatás / Snap</h3>
+              <div class="row"><label for="snapToggle" data-i18n="snapToOrigin">Snap az eredeti helyre</label><input type="checkbox" id="snapToggle" checked /></div>
+              <div class="row"><label for="snapPct" data-i18n="snapThreshold">Snap küszöb</label><input type="range" id="snapPct" min="0" max="100" value="40" /></div>
+              <div class="row"><button id="shuffle" class="ghost" type="button" data-i18n="shuffle">Szétkeverés</button></div>
+              <div class="row"><button id="clear" class="ghost" type="button" data-i18n="clear">Törlés</button></div>
+            </div>
 
-          <div class="group">
-            <h3 data-i18n="displayGroup">Megjelenítés</h3>
-            <div class="row"><label for="timerToggle" data-i18n="timerToggle">Időzítő megjelenítése</label><input type="checkbox" id="timerToggle" checked /></div>
-            <div class="row"><label for="pieceScaleRange" data-i18n="pieceSize">Darab méret</label><input type="range" id="pieceScaleRange" min="30" max="150" value="70" /></div>
-            <div class="row"><span class="hint"><span data-i18n="current">Aktuális:</span> <b id="pieceScaleLbl">70%</b></span></div>
-            <div class="row"><label for="outlineToggle" data-i18n="outline">Kontúr</label><input type="checkbox" id="outlineToggle" checked /></div>
-            <div class="row"><label for="outlineWidth" data-i18n="outlineWidth">Kontúr vastagság</label><input type="range" id="outlineWidth" min="1" max="3" value="1" /></div>
-            <div class="row"><span class="hint"><span data-i18n="current">Aktuális:</span> <b id="outlineWidthLbl">1px</b></span></div>
-            <div class="row"><label for="shadowToggle" data-i18n="shadow">3D árnyék</label><input type="checkbox" id="shadowToggle" checked /></div>
-            <div class="row"><label for="shadowIntensity" data-i18n="shadowIntensity">Árnyék intenzitás</label><input type="range" id="shadowIntensity" min="0" max="100" value="35" /></div>
-            <div class="row"><span class="hint"><span data-i18n="current">Aktuális:</span> <b id="shadowIntensityLbl">35%</b></span></div>
+            <div class="group">
+              <h3 data-i18n="displayGroup">Megjelenítés</h3>
+              <div class="row"><label for="pieceScaleRange" data-i18n="pieceSize">Darab méret</label><input type="range" id="pieceScaleRange" min="30" max="150" value="70" /></div>
+              <div class="row"><span class="hint"><span data-i18n="current">Aktuális:</span> <b id="pieceScaleLbl">70%</b></span></div>
+              <div class="row"><label for="outlineToggle" data-i18n="outline">Kontúr</label><input type="checkbox" id="outlineToggle" checked /></div>
+              <div class="row"><label for="outlineWidth" data-i18n="outlineWidth">Kontúr vastagság</label><input type="range" id="outlineWidth" min="1" max="3" value="1" /></div>
+              <div class="row"><span class="hint"><span data-i18n="current">Aktuális:</span> <b id="outlineWidthLbl">1px</b></span></div>
+              <div class="row"><label for="shadowToggle" data-i18n="shadow">3D árnyék</label><input type="checkbox" id="shadowToggle" checked /></div>
+              <div class="row"><label for="shadowIntensity" data-i18n="shadowIntensity">Árnyék intenzitás</label><input type="range" id="shadowIntensity" min="0" max="100" value="35" /></div>
+              <div class="row"><span class="hint"><span data-i18n="current">Aktuális:</span> <b id="shadowIntensityLbl">35%</b></span></div>
+            </div>
+          </div>
+          <div id="analyticsPanel" class="side-panel">
+            <div class="group">
+              <h3 data-i18n="analyticsGroup">Analitika</h3>
+              <div class="row"><label for="timerToggle" data-i18n="timerToggle">Időzítő megjelenítése</label><input type="checkbox" id="timerToggle" checked /></div>
+              <div id="timerWrap" class="timer-wrap">
+                <span class="timer-label" data-i18n="timerLabel">Idő</span>
+                <span id="timerDisplay" class="timer-display">00:00:00</span>
+              </div>
+              <div class="row"><label for="heatmapToggle" data-i18n="heatmapToggle">Hőtérkép nézet</label><input type="checkbox" id="heatmapToggle" /></div>
+              <div class="row"><button id="heatmapExport" class="ghost" type="button" data-i18n="heatmapExport">Hőtérkép mentése (SVG)</button></div>
+            </div>
           </div>
         </div>
       </div>
     </aside>
   </div>
 
-  <button id="toggleAside" data-i18n="toggleSettings">⚙️ Beállítások</button>
+  <button id="toggleAside" data-i18n="toggleSidebar">⚙️ Oldalsáv</button>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
   <script type="module" src="../src/main.js"></script>

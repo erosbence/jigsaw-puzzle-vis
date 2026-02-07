@@ -43,7 +43,7 @@ export function mergeWithSolvedNeighbors(piece) {
 export function shufflePieces(newGroupFactory) {
   let groups = [];
   const pieces = listPieces();
-  pieces.forEach(p => p.solved = false);
+  pieces.forEach(p => { p.solved = false; p.solvedAt = null; });
   for (const p of pieces) groups.push(newGroupFactory(p));
   for (const g of groups) {
     const b = g.getBounds();

@@ -1,6 +1,6 @@
 import { wireControls } from "./ui/controls.js";
-import { drawBackground, drawPiece } from "./canvas/draw.js";
-import { styleState, setCanvasSize } from "./canvas/state.js";
+import { drawBackground, drawPiece, drawHeatmap } from "./canvas/draw.js";
+import { styleState, setCanvasSize, puzzleGrid, timerState, listPieces } from "./canvas/state.js";
 import { clampPiece, groupAlphaHit, targetTopLeft, shufflePieces } from "./canvas/interaction.js";
 import { Group } from "./canvas/group.js";
 
@@ -40,6 +40,10 @@ window.setup = function () {
 
 window.draw = function () {
   drawBackground(width, height);
+  if (styleState.heatmap && ((puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6))) {
+    drawHeatmap(width, height, puzzleGrid.rows, puzzleGrid.cols, listPieces(), timerState.elapsed);
+    return;
+  }
   for (const g of (window.__groups || [])) g.draw(window.__drawPiece || drawPiece);
 };
 
