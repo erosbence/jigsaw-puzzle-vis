@@ -3,14 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Puzzle Kirakós – moduláris</title>
+  <title>🧩 FragmentVis - Data visualization–based analysis of puzzle players’ solution strategies</title>
   <link rel="stylesheet" href="../src/styles/main.css" />
 </head>
 <body class="aside-open">
   <header>
-    <h1 data-i18n="title">🧩 Puzzle Kirakós – moduláris</h1>
+    <h1 data-i18n="title2">🧩 Jigsaw Puzzle Vis</h1>
     <div class="header-right">
-      <div class="subtitle" data-i18n="subtitle">Mátrix-grid | pontos snap | szomszéd-merge</div>
+      <div class="subtitle" data-i18n="subtitle">A visual analytics system for jigsaw game performance analysis</div>
+      <div id="timerWrap" class="timer-wrap">
+        <span class="timer-label" data-i18n="timerLabel">Idő</span>
+        <span id="timerDisplay" class="timer-display">00:00:00</span>
+      </div>
       <div class="lang-switch">
         <button class="lang-btn" type="button" data-lang="hu" aria-label="Magyar">🇭🇺</button>
         <button class="lang-btn" type="button" data-lang="en" aria-label="English">🇬🇧</button>
@@ -57,6 +61,7 @@
 
           <div class="group">
             <h3 data-i18n="displayGroup">Megjelenítés</h3>
+            <div class="row"><label for="timerToggle" data-i18n="timerToggle">Időzítő megjelenítése</label><input type="checkbox" id="timerToggle" checked /></div>
             <div class="row"><label for="pieceScaleRange" data-i18n="pieceSize">Darab méret</label><input type="range" id="pieceScaleRange" min="30" max="150" value="70" /></div>
             <div class="row"><span class="hint"><span data-i18n="current">Aktuális:</span> <b id="pieceScaleLbl">70%</b></span></div>
             <div class="row"><label for="outlineToggle" data-i18n="outline">Kontúr</label><input type="checkbox" id="outlineToggle" checked /></div>

@@ -1,7 +1,7 @@
 const STRINGS = {
   hu: {
-    title: "🧩 Puzzle Kirakós – moduláris",
-    subtitle: "Mátrix-grid | pontos snap | szomszéd-merge",
+    title2: "🧩 FragmentVis",
+    subtitle: "Puzzlejátékosok megoldási stratégiáinak adatvizualizáció-alapú elemzése",
     startTitle: "Puzzle kiválasztása",
     startHint: "Válassz képet a galériából, majd add meg a méretet.",
     sizeTitle: "Méret",
@@ -16,6 +16,8 @@ const STRINGS = {
     shuffle: "Szétkeverés",
     clear: "Törlés",
     displayGroup: "Megjelenítés",
+    timerLabel: "Idő",
+    timerToggle: "Időzítő megjelenítése",
     pieceSize: "Darab méret",
     current: "Aktuális:",
     outline: "Kontúr",
@@ -31,8 +33,8 @@ const STRINGS = {
     errServerResponse: "Hiányos vagy üres szerver válasz (rows/cols/meta/pieces)."
   },
   en: {
-    title: "🧩 Puzzle Builder – modular",
-    subtitle: "Matrix grid | precise snap | neighbor merge",
+    title2: "🧩 FragmentVis",
+    subtitle: "Data visualization–based analysis of puzzle players’ solution strategies",
     startTitle: "Choose a puzzle",
     startHint: "Pick an image from the gallery, then choose the size.",
     sizeTitle: "Size",
@@ -47,6 +49,8 @@ const STRINGS = {
     shuffle: "Shuffle",
     clear: "Clear",
     displayGroup: "Display",
+    timerLabel: "Time",
+    timerToggle: "Show timer",
     pieceSize: "Piece size",
     current: "Current:",
     outline: "Outline",
@@ -98,7 +102,7 @@ export function applyTranslations() {
     const key = el.dataset.i18n;
     el.textContent = t(key);
   });
-  document.title = t("title");
+  document.title = t("🧩 FragmentVis: Data visualization–based analysis of puzzle players’ solution strategies");
   document.querySelectorAll(".lang-btn").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.lang === currentLang);
   });

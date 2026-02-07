@@ -3,6 +3,7 @@ import { drawPiece, drawBackground } from "../canvas/draw.js";
 import { PuzzlePiece } from "../canvas/piece.js";
 import { Group } from "../canvas/group.js";
 import { clampPiece, averagePieceDiagonal, mergeWithSolvedNeighbors } from "../canvas/interaction.js";
+import { listPieces } from "../canvas/state.js";
 import { uploadPuzzle } from "../api/client.js";
 import { initI18n, t, getLang, applyTranslations } from "./i18n.js";
 
@@ -13,8 +14,7 @@ const galleryItems = [
     preview: "/public/gallery/forest/preview.png",
     sizes: {
       "2x2": { image: "/public/gallery/forest/2x2/image.png", mask: "/public/gallery/forest/2x2/mask.png" },
-      "5x5": { image: "/public/gallery/forest/5x5/image.png", mask: "/public/gallery/forest/5x5/mask.png" },
-      "10x10": { image: "/public/gallery/forest/10x10/image.png", mask: "/public/gallery/forest/10x10/mask.png" }
+      "6x6": { image: "/public/gallery/forest/6x6/image.png", mask: "/public/gallery/forest/6x6/mask.png" }
     }
   },
   {
@@ -23,13 +23,72 @@ const galleryItems = [
     preview: "/public/gallery/city/preview.png",
     sizes: {
       "2x2": { image: "/public/gallery/city/2x2/image.png", mask: "/public/gallery/city/2x2/mask.png" },
-      "5x5": { image: "/public/gallery/city/5x5/image.png", mask: "/public/gallery/city/5x5/mask.png" }
+      "6x6": { image: "/public/gallery/city/6x6/image.png", mask: "/public/gallery/city/6x6/mask.png" }
     }
   }
 ];
 
 let selectedItemId = null;
 let selectedSize = null;
+let timerInterval = null;
+let timerStart = 0;
+let timerElapsed = 0;
+
+function formatDuration(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function renderTimer() {
+  const el = document.getElementById("timerDisplay");
+  if (!el) return;
+  el.textContent = formatDuration(timerElapsed);
+}
+
+function startTimer() {
+  timerStart = Date.now();
+  timerElapsed = 0;
+  renderTimer();
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    timerElapsed = Date.now() - timerStart;
+    renderTimer();
+  }, 1000);
+}
+
+function stopTimer() {
+  if (!timerStart) return;
+  timerElapsed = Date.now() - timerStart;
+  timerStart = 0;
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  renderTimer();
+}
+
+function resetTimer() {
+  timerElapsed = 0;
+  timerStart = 0;
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  renderTimer();
+}
+
+function setTimerVisible(show) {
+  const wrap = document.getElementById("timerWrap");
+  if (wrap) wrap.classList.toggle("timer-hidden", !show);
+}
+
+function isPuzzleSolved() {
+  const pieces = listPieces();
+  return pieces.length > 0 && pieces.every(p => p.solved);
+}
 
 function setStartScreenVisible(show) {
   document.body.classList.toggle('game-started', !show);
@@ -123,6 +182,8 @@ async function startPuzzleFromGallery() {
   const src = item.sizes[selectedSize];
   if (!src) return;
 
+  resetTimer();
+  startTimer();
   resetScene();
   window.__pieces = [];
   window.__groups = [];
@@ -135,6 +196,8 @@ async function startPuzzleFromGallery() {
     await runPuzzleLoad(formData);
     setStartScreenVisible(false);
   } catch (err) {
+    stopTimer();
+    resetTimer();
     alert(t("errorPrefix") + err.message);
   } finally {
     loading.style.display = 'none';
@@ -170,8 +233,16 @@ export function wireControls() {
   renderSizeOptions();
   updateStartButton();
   setStartScreenVisible(true);
+  resetTimer();
+  const timerToggle = document.getElementById('timerToggle');
+  if (timerToggle) {
+    setTimerVisible(timerToggle.checked);
+    timerToggle.addEventListener('change', () => setTimerVisible(timerToggle.checked));
+  }
 
   document.getElementById('openGallery').addEventListener('click', () => {
+    stopTimer();
+    resetTimer();
     setStartScreenVisible(true);
   });
   document.getElementById('startGame').addEventListener('click', startPuzzleFromGallery);
@@ -224,6 +295,8 @@ export function wireControls() {
     resetScene();
     window.__pieces = [];
     window.__groups = [];
+    stopTimer();
+    resetTimer();
     redraw();
   });
 
@@ -267,6 +340,7 @@ export function wireControls() {
       }
     }
     for (const p of g.members) if (p.solved) mergeWithSolvedNeighbors(p);
+    if (isPuzzleSolved()) stopTimer();
     window.__dragging = null; redraw();
   };
 

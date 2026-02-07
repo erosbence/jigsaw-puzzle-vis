@@ -10,9 +10,17 @@ def extract_pieces_with_meta(image, mask):
     binm = to_binary_mask(mg, 128)
 
     cnts, _ = cv2.findContours(binm, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cnts_raw = cnts
     cnts = filter_real_pieces(cnts)
 
     mapping, rows, cols, boxes = sort_to_grid(cnts)
+    if mapping and len(mapping) < (rows * cols):
+        # If pieces are missing, relax contour filtering and retry.
+        cnts_relaxed = filter_real_pieces(cnts_raw, solidity_min=0.60, rel_min=0.45, rel_max=1.80)
+        mapping_relaxed, rows_relaxed, cols_relaxed, boxes_relaxed = sort_to_grid(cnts_relaxed)
+        if len(mapping_relaxed) > len(mapping):
+            cnts = cnts_relaxed
+            mapping, rows, cols, boxes = mapping_relaxed, rows_relaxed, cols_relaxed, boxes_relaxed
     if not mapping:
         return [], 0, 0, {}
 
