@@ -82,8 +82,16 @@
                 <span class="timer-label" data-i18n="timerLabel">Idő</span>
                 <span id="timerDisplay" class="timer-display">00:00:00</span>
               </div>
-              <div class="row"><label for="heatmapToggle" data-i18n="heatmapToggle">Hőtérkép nézet</label><input type="checkbox" id="heatmapToggle" /></div>
-              <div class="row"><button id="heatmapExport" class="ghost" type="button" data-i18n="heatmapExport">Hőtérkép mentése (SVG)</button></div>
+              <div class="row">
+                <label for="analyticsView" data-i18n="analyticsView">Analitika nézet</label>
+                <select id="analyticsView">
+                  <option value="none" data-i18n="analyticsViewNone">Kikapcsolva</option>
+                  <option value="heatmap" data-i18n="analyticsViewHeatmap">Időlenyomat</option>
+                  <option value="grabs" data-i18n="analyticsViewGrabs">Elkapási pontok</option>
+                </select>
+              </div>
+              <div id="analyticsDesc" class="hint" data-i18n="analyticsDescNone">Válassz egy nézetet az analitikához.</div>
+              <div class="row"><button id="heatmapExport" class="ghost" type="button">Mentés (SVG)</button></div>
             </div>
           </div>
         </div>

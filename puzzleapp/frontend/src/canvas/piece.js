@@ -5,7 +5,7 @@ export class PuzzlePiece {
   constructor(img, x, y, r, c, idx, meta) {
     this.img = img; this.x = x; this.y = y;
     this.w = img.width; this.h = img.height; img.loadPixels();
-    this.group = null; this.r = r; this.c = c; this.index = idx; this.meta = meta; this.solved = false; this.solvedAt = null;
+    this.group = null; this.r = r; this.c = c; this.index = idx; this.meta = meta; this.solved = false; this.solvedAt = null; this.grabs = [];
   }
   get sw() { return Math.max(1, Math.round(this.w * styleState.pieceScale)); }
   get sh() { return Math.max(1, Math.round(this.h * styleState.pieceScale)); }

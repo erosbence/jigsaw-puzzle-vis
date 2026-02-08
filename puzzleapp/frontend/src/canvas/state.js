@@ -6,7 +6,7 @@ export let puzzleMeta = { minX:0, minY:0, maxX:0, maxY:0 };
 export let puzzleGrid = { rows: 0, cols: 0 };
 export const timerState = { elapsed: 0, running: false };
 
-export const styleState = { outline: true, outlineW: 1, shadow: true, shadowI: 35, pieceScale: 0.70, heatmap: false };
+export const styleState = { outline: true, outlineW: 1, shadow: true, shadowI: 35, pieceScale: 0.70, analyticsView: "none" };
 
 export function resetScene() { pieces = []; groups = []; puzzleGrid = { rows: 0, cols: 0 }; }
 export function setPuzzleMeta(meta) { puzzleMeta = meta; }

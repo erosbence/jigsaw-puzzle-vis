@@ -1,10 +1,11 @@
-﻿﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState } from "../canvas/state.js";
+﻿﻿﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState, puzzleMeta, bounds } from "../canvas/state.js";
 import { drawPiece } from "../canvas/draw.js";
 import { PuzzlePiece } from "../canvas/piece.js";
 import { Group } from "../canvas/group.js";
 import { clampPiece, averagePieceDiagonal, mergeWithSolvedNeighbors } from "../canvas/interaction.js";
 import { uploadPuzzle } from "../api/client.js";
 import { initI18n, t, getLang, applyTranslations } from "./i18n.js";
+import { gridRectScaled } from "./layout.js";
 
 const galleryItems = [
   {
@@ -32,6 +33,7 @@ let selectedSize = null;
 let timerInterval = null;
 let timerStart = 0;
 let timerElapsed = 0;
+let activeGrab = null;
 
 function formatDuration(ms) {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -160,6 +162,48 @@ function downloadSvg(filename, svgText) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+function buildGrabSvg(rows, cols, pieces) {
+  const canvasW = bounds.w || 640;
+  const canvasH = bounds.h || 640;
+  const { originX, originY, W, H, s } = gridRectScaled(canvasW, canvasH);
+  const width = canvasW;
+  const height = canvasH;
+
+  const times = [];
+  for (const p of pieces || []) {
+    for (const g of (p.grabs || [])) {
+      if (typeof g.t === "number") times.push(g.t);
+    }
+  }
+  const minT = times.length ? Math.min(...times) : 0;
+  const maxT = times.length ? Math.max(...times) : 1;
+  const rangeT = Math.max(1, maxT - minT);
+
+  const rects = [];
+  const dots = [];
+  for (const p of pieces || []) {
+    const px = originX + (p.meta.x - puzzleMeta.minX) * s;
+    const py = originY + (p.meta.y - puzzleMeta.minY) * s;
+    const pw = p.meta.w * s;
+    const ph = p.meta.h * s;
+    rects.push(`<rect x="${px}" y="${py}" width="${pw}" height="${ph}" fill="none" stroke="#d2d2d2" stroke-width="1" />`);
+    for (const g of (p.grabs || [])) {
+      const color = "#d81e1e";
+      const radius = 5;
+      const gx = px + (g.x / p.w) * pw;
+      const gy = py + (g.y / p.h) * ph;
+      dots.push(`<circle cx="${gx}" cy="${gy}" r="${radius}" fill="${color}" fill-opacity="0.7" stroke="#ffffff" stroke-opacity="0.7" stroke-width="1" />`);
+    }
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>
+  ${rects.join("")}
+  ${dots.join("")}
+</svg>`;
+}
+
 function renderTimer() {
   const el = document.getElementById("timerDisplay");
   if (!el) return;
@@ -177,7 +221,7 @@ function startTimer() {
   timerInterval = setInterval(() => {
     timerElapsed = Date.now() - timerStart;
     renderTimer();
-    if (styleState.heatmap && puzzleGrid.rows === 2 && puzzleGrid.cols === 2) redraw();
+    if (styleState.analyticsView === "heatmap" && ((puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6))) redraw();
   }, 1000);
 }
 
@@ -217,7 +261,37 @@ function isPuzzleSolved() {
 }
 
 function canExportHeatmap() {
-  return styleState.heatmap && ((puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6));
+  if (styleState.analyticsView !== "heatmap" && styleState.analyticsView !== "grabs") return false;
+  return (puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6);
+}
+
+function startGrabAt(piece, mx, my) {
+  const u = (mx - piece.x) / piece.sw;
+  const v = (my - piece.y) / piece.sh;
+  const ix = Math.max(0, Math.min(piece.w - 1, Math.floor(u * piece.w)));
+  const iy = Math.max(0, Math.min(piece.h - 1, Math.floor(v * piece.h)));
+  activeGrab = { piece, x: ix, y: iy, start: timerState.elapsed };
+}
+
+function finishGrab() {
+  if (!activeGrab) return;
+  const dur = Math.max(0, timerState.elapsed - activeGrab.start);
+  const piece = activeGrab.piece;
+  piece.grabs = piece.grabs || [];
+  piece.grabs.push({ x: activeGrab.x, y: activeGrab.y, t: activeGrab.start, dur });
+  activeGrab = null;
+}
+
+function findPieceAt(mx, my) {
+  const groups = window.__groups || [];
+  for (let gi = groups.length - 1; gi >= 0; gi--) {
+    const g = groups[gi];
+    const arr = Array.from(g.members).sort((a, b) => b.index - a.index);
+    for (const p of arr) {
+      if (p.hit(mx, my)) return p;
+    }
+  }
+  return null;
 }
 
 function setStartScreenVisible(show) {
@@ -312,6 +386,15 @@ async function startPuzzleFromGallery() {
   const src = item.sizes[selectedSize];
   if (!src) return;
 
+  styleState.analyticsView = "none";
+  const analyticsView = document.getElementById('analyticsView');
+  if (analyticsView) analyticsView.value = "none";
+  const heatmapExport = document.getElementById('heatmapExport');
+  if (heatmapExport) {
+    heatmapExport.disabled = true;
+    heatmapExport.textContent = t("heatmapExport");
+  }
+  redraw();
   resetTimer();
   startTimer();
   resetScene();
@@ -342,7 +425,16 @@ async function runPuzzleLoad(formData) {
   setPuzzleMeta(data.meta);
   setPuzzleGrid(data.rows, data.cols);
   const heatmapExport = document.getElementById('heatmapExport');
-  if (heatmapExport) heatmapExport.disabled = !canExportHeatmap();
+  if (heatmapExport) {
+    heatmapExport.disabled = !canExportHeatmap();
+    if (styleState.analyticsView === "heatmap") {
+      heatmapExport.textContent = t("exportHeatmapLabel");
+    } else if (styleState.analyticsView === "grabs") {
+      heatmapExport.textContent = t("exportGrabsLabel");
+    } else {
+      heatmapExport.textContent = t("heatmapExport");
+    }
+  }
 
   let idx = 0;
   for (const item of data.pieces) {
@@ -388,11 +480,20 @@ export function wireControls() {
     setTimerVisible(timerToggle.checked);
     timerToggle.addEventListener('change', () => setTimerVisible(timerToggle.checked));
   }
-  const heatmapToggle = document.getElementById('heatmapToggle');
-  if (heatmapToggle) {
-    styleState.heatmap = heatmapToggle.checked;
-    heatmapToggle.addEventListener('change', () => {
-      styleState.heatmap = heatmapToggle.checked;
+  const analyticsView = document.getElementById('analyticsView');
+  const analyticsDesc = document.getElementById('analyticsDesc');
+  const updateAnalyticsDesc = () => {
+    if (!analyticsDesc) return;
+    if (styleState.analyticsView === "heatmap") analyticsDesc.textContent = t("analyticsDescHeatmap");
+    else if (styleState.analyticsView === "grabs") analyticsDesc.textContent = t("analyticsDescGrabs");
+    else analyticsDesc.textContent = t("analyticsDescNone");
+  };
+  if (analyticsView) {
+    styleState.analyticsView = analyticsView.value || "none";
+    updateAnalyticsDesc();
+    analyticsView.addEventListener('change', () => {
+      styleState.analyticsView = analyticsView.value || "none";
+      updateAnalyticsDesc();
       redraw();
     });
   }
@@ -400,12 +501,24 @@ export function wireControls() {
   if (heatmapExport) {
     const updateExportState = () => {
       heatmapExport.disabled = !canExportHeatmap();
+      if (styleState.analyticsView === "heatmap") {
+        heatmapExport.textContent = t("exportHeatmapLabel");
+      } else if (styleState.analyticsView === "grabs") {
+        heatmapExport.textContent = t("exportGrabsLabel");
+      } else {
+        heatmapExport.textContent = t("heatmapExport");
+      }
     };
     updateExportState();
-    heatmapToggle?.addEventListener('change', updateExportState);
+    analyticsView?.addEventListener('change', updateExportState);
     heatmapExport.addEventListener('click', () => {
       if (!canExportHeatmap()) {
         alert(t("heatmapExportUnavailable"));
+        return;
+      }
+      if (styleState.analyticsView === "grabs") {
+        const svg = buildGrabSvg(puzzleGrid.rows, puzzleGrid.cols, listPieces());
+        downloadSvg(`grabs-${puzzleGrid.rows}x${puzzleGrid.cols}.svg`, svg);
         return;
       }
       const svg = buildHeatmapSvg(puzzleGrid.rows, puzzleGrid.cols, listPieces(), timerState.elapsed);
@@ -423,6 +536,23 @@ export function wireControls() {
   document.querySelectorAll('.lang-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       applyTranslations();
+      window.__grabTooltipLabels = { time: t("grabTimeLabel"), duration: t("grabDurationLabel") };
+      const heatmapExport = document.getElementById('heatmapExport');
+      if (heatmapExport) {
+        if (styleState.analyticsView === "heatmap") {
+          heatmapExport.textContent = t("exportHeatmapLabel");
+        } else if (styleState.analyticsView === "grabs") {
+          heatmapExport.textContent = t("exportGrabsLabel");
+        } else {
+          heatmapExport.textContent = t("heatmapExport");
+        }
+      }
+      const analyticsDesc = document.getElementById('analyticsDesc');
+      if (analyticsDesc) {
+        if (styleState.analyticsView === "heatmap") analyticsDesc.textContent = t("analyticsDescHeatmap");
+        else if (styleState.analyticsView === "grabs") analyticsDesc.textContent = t("analyticsDescGrabs");
+        else analyticsDesc.textContent = t("analyticsDescNone");
+      }
       renderGallery();
       renderSizeOptions();
       updateStartButton();
@@ -476,6 +606,8 @@ export function wireControls() {
   // EgĂ©r-interakciĂłk a globĂˇlis p5 hook-okhoz
   window.__onMousePressed = () => {
     const groups = window.__groups || [];
+    const hitPiece = findPieceAt(mouseX, mouseY);
+    if (hitPiece && styleState.analyticsView === "none") startGrabAt(hitPiece, mouseX, mouseY);
     for (let gi = groups.length - 1; gi >= 0; gi--) {
       const g = groups[gi];
       if (window.__groupAlphaHit(g, mouseX, mouseY)) {
@@ -501,6 +633,7 @@ export function wireControls() {
   };
 
   window.__onMouseReleased = () => {
+    if (styleState.analyticsView === "none") finishGrab();
     const g = window.__dragging;
     if (!g) return;
 
@@ -524,7 +657,6 @@ export function wireControls() {
   // P5 helper-eket a window-ra tesszĂĽk, hogy a main hozzĂˇfĂ©rjen
   window.__drawPiece = drawPiece;
 }
-
 
 
 

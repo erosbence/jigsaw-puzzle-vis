@@ -109,6 +109,37 @@ export function drawHeatmap(width, height, rows, cols, pieces, elapsedMs) {
   }
 }
 
+export function drawGrabPoints(width, height, pieces) {
+  const { originX, originY, W, H, s } = gridRectScaled(width, height);
+  if (W <= 0 || H <= 0) return;
+
+  for (const p of pieces || []) {
+    const tx = originX + (p.meta.x - puzzleMeta.minX) * s;
+    const ty = originY + (p.meta.y - puzzleMeta.minY) * s;
+    push();
+    tint(255, 60);
+    image(p.img, tx, ty, p.sw, p.sh);
+    noTint();
+    noFill();
+    stroke(210);
+    rect(tx, ty, p.sw, p.sh);
+    pop();
+
+    const grabs = p.grabs || [];
+    if (!grabs.length) continue;
+    push();
+    stroke(255, 255, 255, 180);
+    strokeWeight(1);
+    fill(220, 30, 30, 170);
+    for (const g of grabs) {
+      const gx = tx + (g.x / p.w) * p.sw;
+      const gy = ty + (g.y / p.h) * p.sh;
+      circle(gx, gy, 6);
+    }
+    pop();
+  }
+}
+
 export function drawPiece(piece, st) {
   const sw = piece.sw, sh = piece.sh;
 
