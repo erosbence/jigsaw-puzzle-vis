@@ -71,3 +71,12 @@ body.aside-collapsed aside { width: 0; }
 @media (max-width: 720px) {
   .header-right { flex-direction:column; align-items:flex-end; gap:6px; }
 }
+
+/* Modal styles */
+.modal-overlay { position: fixed; inset:0; background: rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; z-index:20; }
+.modal-overlay[hidden] { display:none; }
+.modal-panel { background:#fff; border-radius:10px; padding:18px; width: min(520px, 90vw); box-shadow:0 12px 36px rgba(0,0,0,.28); }
+.modal-panel h2 { margin:0 0 8px; font-size:16px; }
+.modal-body { color:#444; font-size:14px; margin-bottom:12px; }
+.modal-actions { display:flex; gap:8px; justify-content:flex-end; }
+.modal-panel .ghost { background:#fff; }

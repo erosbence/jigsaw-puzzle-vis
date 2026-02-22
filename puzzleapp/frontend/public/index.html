@@ -56,6 +56,7 @@
 
             <div class="group">
               <h3 data-i18n="snapGroup">Mozgatás / Snap</h3>
+              <p class="hint" data-i18n="snapDesc">Ha be van kapcsolva, a darabok automatikusan illeszkednek az eredeti helyükre, ha elég közel viszed őket.</p>
               <div class="row"><label for="snapToggle" data-i18n="snapToOrigin">Snap az eredeti helyre</label><input type="checkbox" id="snapToggle" checked /></div>
               <div class="row"><label for="snapPct" data-i18n="snapThreshold">Snap küszöb</label><input type="range" id="snapPct" min="0" max="100" value="40" /></div>
               <div class="row"><button id="shuffle" class="ghost" type="button" data-i18n="shuffle">Szétkeverés</button></div>
@@ -88,9 +89,22 @@
                   <option value="none" data-i18n="analyticsViewNone">Kikapcsolva</option>
                   <option value="heatmap" data-i18n="analyticsViewHeatmap">Időlenyomat</option>
                   <option value="grabs" data-i18n="analyticsViewGrabs">Elkapási pontok</option>
+                  <option value="connections" data-i18n="analyticsViewConnections">Kapcsolatok</option>
                 </select>
               </div>
               <div id="analyticsDesc" class="hint" data-i18n="analyticsDescNone">Válassz egy nézetet az analitikához.</div>
+              <div id="connectionsControls" style="display:none; margin-top:8px;">
+                <div id="connectionsSelected" class="hint">Kiválasztott darab: <span id="connectionsSelectedIdx">—</span></div>
+                <div class="row">
+                  <label for="connectionsSlider">Időpillanat</label>
+                  <input type="range" id="connectionsSlider" min="0" value="0" />
+                </div>
+                <div class="connections-legend" style="margin-top:8px; font-size:13px;">
+                  <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><span style="width:14px;height:8px;background:#2878dc;display:inline-block;border-radius:2px;box-shadow:0 0 4px rgba(40,120,220,0.9)"></span><span data-i18n="connLegendCorrect">Kék: helyes összeillesztés</span></div>
+                  <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><span style="width:14px;height:8px;background:#a01414;display:inline-block;border-radius:2px;"></span><span data-i18n="connLegendTooFar">Sötét piros: túl nagy távolság (rossz kapcsolat)</span></div>
+                  <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><span style="width:14px;height:8px;background:#FF8C00;display:inline-block;border-radius:2px;"></span><span data-i18n="connLegendTooClose">Narancs: túl kicsi távolság (felcserélődés)</span></div>
+                </div>
+              </div>
               <div class="row"><button id="heatmapExport" class="ghost" type="button">Mentés (SVG)</button></div>
             </div>
           </div>
@@ -100,6 +114,18 @@
   </div>
 
   <button id="toggleAside" data-i18n="toggleSidebar">⚙️ Oldalsáv</button>
+
+  <!-- Confirm leave modal -->
+  <div id="confirmLeaveModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="confirmLeaveTitle" aria-describedby="confirmLeaveMsg" hidden>
+    <div class="modal-panel" role="document">
+      <h2 id="confirmLeaveTitle" data-i18n="confirmLeaveTitle">Megerősítés</h2>
+      <div id="confirmLeaveMsg" class="modal-body" data-i18n="confirmLeaveMsg">Biztosan visszatérsz a galériába? A jelenlegi játék nem kerül mentésre.</div>
+      <div class="modal-actions">
+        <button id="confirmLeaveCancel" class="ghost" type="button" data-i18n="confirmLeaveNo">Maradok</button>
+        <button id="confirmLeaveConfirm" class="primary" type="button" data-i18n="confirmLeaveYes">Visszatérés</button>
+      </div>
+    </div>
+  </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
   <script type="module" src="../src/main.js"></script>
