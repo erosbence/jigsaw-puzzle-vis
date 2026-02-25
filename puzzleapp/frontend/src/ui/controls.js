@@ -519,6 +519,9 @@ async function startPuzzleFromGallery() {
     heatmapExport.disabled = true;
     heatmapExport.textContent = t("heatmapExport");
   }
+
+  wireControls();
+
   redraw();
   resetTimer();
   startTimer();
