@@ -30,7 +30,7 @@ const STRINGS = {
     analyticsDescNone: "Válassz egy nézetet az analitikához.",
     analyticsDescHeatmap: "A cellák színe jelzi, mikor került helyére az adott darab.",
     analyticsDescGrabs: "A pontok azt mutatják, hol fogtad meg a darabokat az idő során.",
-    analyticsDescConnections: "A darabok aktuális vagy snapshot-beli középpontjaihoz kapcsolódó vonalak összekötik az ortogonális szomszédokat. Használd a csúszkát a különböző időpontok megtekintéséhez.",
+   analyticsDescConnections: "Kezdés: Kattints az ábrán valamelyik csomópontra egy puzzle-darabka kiválasztásához. A nézet a többi elemet a kiválasztott darabka megjelenített középpontjától mért távolság alapján rendezi, majd kiválasztja a rács által elvárt számú ortogonális szomszédnak megfelelő legközelebbi jelölteket (N, ahol N azt jelenti, hány darabkával illeszthető össze az adott elem). Minden jelölt esetén kiszámítja az aktuális megjelenített távolságot (d_cur), valamint a referencia-távolságot (d_ref), amely a célpozíciók középpontjai közötti távolságot jelenti.",
     connLegendCorrect: "Kék: a két darab egymáshoz van kapcsolva, illesztés történt",
     connLegendTooFar: "Sötét piros: a darabok távolabb vannak egymástól, mint ahogy a helyes pozíciójuk alapján várható lenne",
     connLegendTooClose: "Narancs: a darabok túl közel vannak egymáshoz, vagy rossz oldalon/irányban vannak egymáshoz képest",
@@ -62,7 +62,10 @@ const STRINGS = {
     confirmLeaveNo: "Maradok",
     earliest: "Legkorábbi",
     latest: "Legkésőbbi",
-    noSolved: "Nincs a helyére illesztve egy elem sem"
+    noSolved: "Nincs a helyére illesztve egy elem sem",
+    connectionViewPieceIdText: "Kiválaszott darab: #",
+    connectionSliderHint: "Használd a csúszkát a különböző időpillanatok megtekintéséhez.",
+    connectionsSlider: "Időpillanatok"
   },
   en: {
     title2: "🧩 FragmentVis",
@@ -95,8 +98,7 @@ const STRINGS = {
     analyticsDescNone: "Select a view to see analytics.",
     analyticsDescHeatmap: "Cell colors show when each piece was placed.",
     analyticsDescGrabs: "Points show where you grabbed pieces over time.",
-    analyticsDescConnections: "A nézet a kiválasztott darab megjelenített középpontja alapján rendezi a többi darabot távolság szerint, kiválasztja a rács szerinti várható ortogonális szomszédok számának (n_sz) megfelelő legközelebbi candidate-eket, majd minden candidate-hez kiszámítja az aktuális megjelenített távolságot (d_cur) és a referencia-távolságot (d_ref — a célhelyek középpontjai között).",
-    analyticsDescConnections: "The view sorts other pieces by distance from the selected piece's displayed center, selects the nearest candidates matching the grid-expected number of orthogonal neighbors (n_sz), and for each candidate computes the current displayed distance (d_cur) and the reference distance (d_ref — the centers of the target positions).",
+    analyticsDescConnections: "Start: Click on any node in the diagram to select a puzzle piece. The view sorts the other pieces based on their distance from the displayed center of the selected piece, and selects the nearest candidates corresponding to the grid-expected number of orthogonal neighbors (N, where N denotes how many pieces the given piece can be joined with). For each candidate, it computes both the current displayed distance (d_cur) and the reference distance (d_ref), defined as the distance between the centers of the target positions.",
     connLegendCorrect: "Blue: the two pieces are connected (merged)",
     connLegendTooFar: "Dark red: the pieces are further apart than expected based on their correct positions",
     connLegendTooClose: "Orange: the pieces are too close together, or on the wrong side/direction relative to each other",
@@ -128,7 +130,10 @@ const STRINGS = {
     confirmLeaveNo: "Stay",
     earliest: "Earliest",
     latest: "Latest",
-    noSolved: "No piece has been placed correctly"
+    noSolved: "No piece has been placed correctly",
+    connectionViewPieceIdText: "Selected puzzle piece: #",
+    connectionSliderHint: "Use the slider to explore different time snapshots.",
+    connectionsSlider: "Time snapshots"
   }
 };
 

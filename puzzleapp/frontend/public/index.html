@@ -94,9 +94,14 @@
               </div>
               <div id="analyticsDesc" class="hint" data-i18n="analyticsDescNone">Válassz egy nézetet az analitikához.</div>
               <div id="connectionsControls" style="display:none; margin-top:8px;">
-                <div id="connectionsSelected" class="hint">Kiválasztott darab: <span id="connectionsSelectedIdx">—</span></div>
-                <div class="row">
-                  <label for="connectionsSlider">Időpillanat</label>
+                <div id="connectionsSelected" class="hint"><label for="connectionViewPieceIdText" data-i18n="connectionViewPieceIdText">Kiválasztott darab: #</label><span id="connectionsSelectedIdx">—</span></div>
+                <div id="conntectionsSliderHint" class="hint">
+                    <label for="connectionsSliderHint" data-i18n="connectionSliderHint">
+                        Használd a csúszkát a különböző időpontok megtekintéséhez.
+                    </label>
+                </div>
+                  <div class="row">
+                  <label for="connectionsSlider" data-i18n="connectionsSlider">Időpillanat</label>
                   <input type="range" id="connectionsSlider" min="0" value="0" />
                 </div>
                 <div class="connections-legend" style="margin-top:8px; font-size:13px;">
