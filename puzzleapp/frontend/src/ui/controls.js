@@ -779,6 +779,7 @@ export function wireControls() {
       if (analyticsDesc) {
         if (styleState.analyticsView === "heatmap") analyticsDesc.textContent = t("analyticsDescHeatmap");
         else if (styleState.analyticsView === "grabs") analyticsDesc.textContent = t("analyticsDescGrabs");
+        else if (styleState.analyticsView === "connections") analyticsDesc.textContent = t("analyticsDescConnections");
         else analyticsDesc.textContent = t("analyticsDescNone");
       }
       renderGallery();
