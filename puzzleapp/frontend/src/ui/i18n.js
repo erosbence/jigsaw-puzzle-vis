@@ -55,12 +55,14 @@ const STRINGS = {
     errorPrefix: "Hiba: ",
     errImageLoad: "Nem sikerült betölteni a képet.",
     errInvalidSize: "Érvénytelen méret.",
-    errServerResponse: "Hiányos vagy üres szerver válasz (rows/cols/meta/pieces)."
-    ,
+    errServerResponse: "Hiányos vagy üres szerver válasz (rows/cols/meta/pieces).",
     confirmLeaveTitle: "Megerősítés",
     confirmLeaveMsg: "Biztosan visszatérsz a galériába? A jelenlegi játék nem kerül mentésre.",
     confirmLeaveYes: "Visszatérés",
-    confirmLeaveNo: "Maradok"
+    confirmLeaveNo: "Maradok",
+    earliest: "Legkorábbi",
+    latest: "Legkésőbbi",
+    noSolved: "Nincs a helyére illesztve egy elem sem"
   },
   en: {
     title2: "🧩 FragmentVis",
@@ -119,12 +121,14 @@ const STRINGS = {
     errorPrefix: "Error: ",
     errImageLoad: "Failed to load the image.",
     errInvalidSize: "Invalid size.",
-    errServerResponse: "Missing or empty server response (rows/cols/meta/pieces)."
-    ,
+    errServerResponse: "Missing or empty server response (rows/cols/meta/pieces).",
     confirmLeaveTitle: "Confirm",
     confirmLeaveMsg: "Are you sure you want to return to the gallery? The current game will not be saved.",
     confirmLeaveYes: "Return",
-    confirmLeaveNo: "Stay"
+    confirmLeaveNo: "Stay",
+    earliest: "Earliest",
+    latest: "Latest",
+    noSolved: "No piece has been placed correctly"
   }
 };
 

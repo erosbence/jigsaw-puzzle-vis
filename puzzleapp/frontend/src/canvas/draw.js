@@ -1,4 +1,5 @@
 import { gridRectScaled } from "../ui/layout.js";
+import { t } from "../ui/i18n.js";
 import { styleState, puzzleMeta, listPieces, listWrongLinks, globalSnapshots, connectionsState, puzzleGrid } from "./state.js";
 import { averagePieceDiagonal } from "./interaction.js";
 
@@ -372,16 +373,16 @@ export function drawHeatmap(width, height, rows, cols, pieces, elapsedMs) {
 
     if (hasSolved) {
       textAlign(RIGHT, CENTER);
-      text(`Legkorábbi: ${formatClock(minTime)}`, lx - 8, ly + legendH / 2);
+      text(`${t("earliest")}: ${formatClock(minTime)}`, lx - 8, ly + legendH / 2);
 
       textAlign(LEFT, CENTER);
-      text(`Legkésőbbi: ${formatClock(legendMax)}`, lx + legendW + 8, ly + legendH / 2);
+      text(`${t("latest")}: ${formatClock(legendMax)}`, lx + legendW + 8, ly + legendH / 2);
     } else {
         const textGap = 6; // távolság a legend és a szöveg között
 
         textAlign(CENTER, TOP);
         text(
-          "Nincs a helyére illesztve egy elem sem",
+          `${t("noSolved")}`,
           lx + legendW / 2,
           ly + legendH + textGap
         );
