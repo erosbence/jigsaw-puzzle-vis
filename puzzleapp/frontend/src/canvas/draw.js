@@ -345,33 +345,47 @@ export function drawHeatmap(width, height, rows, cols, pieces, elapsedMs) {
     }
   }
 
-  const legendW = Math.min(200, W * 0.35);
-  const legendH = 10;
-  const lx = originX + W - legendW - 8;
-  const ly = originY + H - legendH - 18;
-  const steps = 40;
-  noStroke();
-  for (let i = 0; i < steps; i++) {
-    const t = i / (steps - 1);
-    const [cr, cg, cb] = seismicColor(t);
-    fill(cr, cg, cb);
-    rect(lx + (legendW * i) / steps, ly, legendW / steps + 0.5, legendH);
-  }
-  stroke(200);
-  noFill();
-  rect(lx, ly, legendW, legendH);
-  noStroke();
-  fill(80);
-  textSize(11);
-  if (hasSolved) {
-    textAlign(RIGHT, CENTER);
-    text(`Legkorabbi: ${formatClock(minTime)}`, lx - 8, ly + legendH / 2);
-    textAlign(LEFT, CENTER);
-    text(`Legkesobbi: ${formatClock(legendMax)}`, lx + legendW + 8, ly + legendH / 2);
-  } else {
-    textAlign(LEFT, CENTER);
-    text("Nincs helyere illesztve egy elem sem", lx, ly + legendH / 2);
-  }
+    const legendW = Math.min(200, W * 0.35);
+    const legendH = 10;
+
+    const gapBelow = 12;          // távolság a diagram aljától
+    const lx = originX + (W - legendW) / 2;
+    const ly = originY + H + gapBelow;
+
+    const steps = 40;
+
+    noStroke();
+    for (let i = 0; i < steps; i++) {
+      const t = i / (steps - 1);
+      const [cr, cg, cb] = seismicColor(t);
+      fill(cr, cg, cb);
+      rect(lx + (legendW * i) / steps, ly, legendW / steps + 0.5, legendH);
+    }
+
+    stroke(200);
+    noFill();
+    rect(lx, ly, legendW, legendH);
+
+    noStroke();
+    fill(80);
+    textSize(11);
+
+    if (hasSolved) {
+      textAlign(RIGHT, CENTER);
+      text(`Legkorábbi: ${formatClock(minTime)}`, lx - 8, ly + legendH / 2);
+
+      textAlign(LEFT, CENTER);
+      text(`Legkésőbbi: ${formatClock(legendMax)}`, lx + legendW + 8, ly + legendH / 2);
+    } else {
+        const textGap = 6; // távolság a legend és a szöveg között
+
+        textAlign(CENTER, TOP);
+        text(
+          "Nincs a helyére illesztve egy elem sem",
+          lx + legendW / 2,
+          ly + legendH + textGap
+        );
+    }
 }
 
 export function drawGrabPoints(width, height, pieces) {
