@@ -14,7 +14,7 @@ export let globalSnapshots = [];
 // Connections view state (which piece selected, which snapshot index for that piece)
 export let connectionsState = { selected: null, snapshotIdx: 0 };
 
-export const styleState = { outline: true, outlineW: 1, shadow: true, shadowI: 35, pieceScale: 0.70, analyticsView: "none" };
+export const styleState = { outline: true, outlineW: 1, shadow: true, shadowI: 35, pieceScale: 0.40, analyticsView: "none" };
 
 export function resetScene() { pieces = []; groups = []; puzzleGrid = { rows: 0, cols: 0 }; }
 export function setPuzzleMeta(meta) { puzzleMeta = meta; }
