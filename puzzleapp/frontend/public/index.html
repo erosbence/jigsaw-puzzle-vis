@@ -52,6 +52,7 @@
             <div class="group">
               <h3 data-i18n="puzzleGroup">Puzzle</h3>
               <div class="row"><button id="openGallery" class="ghost" type="button" data-i18n="openGallery">Galéria megnyitása</button></div>
+              <div class="row"><button id="previewImage" class="ghost" type="button" data-i18n="previewImage">Előnézet</button></div>
             </div>
 
             <div class="group">
@@ -90,9 +91,36 @@
                   <option value="heatmap" data-i18n="analyticsViewHeatmap">Időlenyomat</option>
                   <option value="grabs" data-i18n="analyticsViewGrabs">Elkapási pontok</option>
                   <option value="connections" data-i18n="analyticsViewConnections">Kapcsolatok</option>
+                  <option value="paths" data-i18n="analyticsViewPaths">Mozgási útvonalak</option>
                 </select>
               </div>
               <div id="analyticsDesc" class="hint" data-i18n="analyticsDescNone">Válassz egy nézetet az analitikához.</div>
+              <div id="pathsLegend" style="display:none; margin-top:12px;">
+                <div style="margin-bottom:10px;">
+                  <div style="position:relative; height:14px; background: linear-gradient(to right, rgb(0,0,255), rgb(0,255,255), rgb(0,255,0), rgb(255,255,0), rgb(255,128,0), rgb(255,0,0)); border:1px solid #969696; border-radius:2px;"></div>
+                  <div style="display:flex; justify-content:space-between; font-size:11px; color:#505050; margin-top:4px;">
+                    <span data-i18n="pathStart">Kezdés</span>
+                    <span data-i18n="pathEnd">Vég</span>
+                  </div>
+                </div>
+                <div style="font-size:11px; color:#666; margin-bottom:6px;" data-i18n="pathMarkers">Jelölők:</div>
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px; font-size:11px;">
+                  <div style="width:14px; height:14px; min-width:14px; background:rgba(0,0,255,0.7); border:2px solid #ffffff; box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>
+                  <span data-i18n="pathStartMarker">Kezdés</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px; font-size:11px;">
+                  <div style="width:16px; height:16px; min-width:16px; background:rgba(0,255,0,0.7); border:2px solid #ffffff; border-radius:50%; box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>
+                  <span data-i18n="pathStopMarker">Megállás</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; font-size:11px;">
+                  <div style="width:16px; height:16px; min-width:16px; position:relative;">
+                    <svg width="16" height="16" viewBox="0 0 16 16" style="filter: drop-shadow(0 0 3px rgba(0,0,0,0.3));">
+                      <polygon points="8,1 9.5,6 14.5,6 10.5,9 12,14 8,10.5 4,14 5.5,9 1.5,6 6.5,6" fill="rgba(255,0,0,0.7)" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/>
+                    </svg>
+                  </div>
+                  <span data-i18n="pathEndMarker">Végpont</span>
+                </div>
+              </div>
               <div id="connectionsControls" style="display:none; margin-top:8px;">
                 <div id="connectionsSelected" class="hint"><label for="connectionViewPieceIdText" data-i18n="connectionViewPieceIdText">Kiválasztott darab: #</label><span id="connectionsSelectedIdx">—</span></div>
                 <div id="conntectionsSliderHint" class="hint">
@@ -128,6 +156,16 @@
       <div class="modal-actions">
         <button id="confirmLeaveCancel" class="ghost" type="button" data-i18n="confirmLeaveNo">Maradok</button>
         <button id="confirmLeaveConfirm" class="primary" type="button" data-i18n="confirmLeaveYes">Visszatérés</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Preview image modal -->
+  <div id="previewModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="previewTitle" hidden>
+    <div class="modal-panel" role="document" style="max-width: 90vw; max-height: 90vh;">
+      <h2 id="previewTitle" data-i18n="previewTitle">Előnézet</h2>
+      <div class="modal-body" style="text-align: center; padding: 20px;">
+        <img id="previewImageElement" src="" alt="" style="max-width: 100%; max-height: 70vh; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);" />
       </div>
     </div>
   </div>

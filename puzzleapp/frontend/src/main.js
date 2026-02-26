@@ -1,5 +1,5 @@
 import { wireControls } from "./ui/controls.js";
-import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections } from "./canvas/draw.js";
+import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections, drawMovementPaths } from "./canvas/draw.js";
 import { styleState, setCanvasSize, puzzleGrid, timerState, listPieces } from "./canvas/state.js";
 import { clampPiece, groupAlphaHit, targetTopLeft, shufflePieces } from "./canvas/interaction.js";
 import { Group } from "./canvas/group.js";
@@ -52,9 +52,19 @@ window.draw = function () {
     drawConnections(width, height, listPieces());
     return;
   }
+  if (styleState.analyticsView === "paths") {
+    drawMovementPaths(width, height, listPieces());
+    return;
+  }
   for (const g of (window.__groups || [])) g.draw(window.__drawPiece || drawPiece);
 };
 
 window.mousePressed = () => window.__onMousePressed && window.__onMousePressed();
 window.mouseDragged = () => window.__onMouseDragged && window.__onMouseDragged();
 window.mouseReleased = () => window.__onMouseReleased && window.__onMouseReleased();
+window.mouseMoved = () => {
+  // Redraw when mouse moves in paths view to show hover effects
+  if (styleState.analyticsView === "paths") {
+    redraw();
+  }
+};

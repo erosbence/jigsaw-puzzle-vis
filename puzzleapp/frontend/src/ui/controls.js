@@ -2,7 +2,7 @@
 import { drawPiece } from "../canvas/draw.js";
 import { PuzzlePiece } from "../canvas/piece.js";
 import { Group } from "../canvas/group.js";
-import { clampPiece, averagePieceDiagonal, mergeWithSolvedNeighbors, targetTopLeft } from "../canvas/interaction.js";
+import { clampPiece, clampPieceOutsideGrid, averagePieceDiagonal, mergeWithSolvedNeighbors, targetTopLeft } from "../canvas/interaction.js";
 import { uploadPuzzle } from "../api/client.js";
 import { initI18n, t, getLang, applyTranslations } from "./i18n.js";
 import { gridRectScaled } from "./layout.js";
@@ -35,6 +35,7 @@ let timerInterval = null;
 let timerStart = 0;
 let timerElapsed = 0;
 let activeGrab = null;
+let dragTrackInterval = null; // Interval for tracking drag positions
 // When a modal is open we block interactions with the canvas
 window.__modalOpen = false;
 
@@ -458,6 +459,243 @@ function buildConnectionsSvg(rows, cols, pieces) {
 </svg>`;
 }
 
+function buildMovementPathsSvg() {
+  if (!globalSnapshots || globalSnapshots.length < 2) {
+    return null; // Not enough data
+  }
+
+  const canvasW = bounds.w || 640;
+  const canvasH = bounds.h || 640;
+  const { originX, originY, W, H, s } = gridRectScaled(canvasW, canvasH);
+  const width = canvasW;
+  const height = canvasH;
+
+  const allPieces = listPieces();
+
+  // Helper: time-based color
+  function timeColorSvg(t) {
+    const clamped = Math.max(0, Math.min(1, t));
+    if (clamped < 0.33) {
+      const k = clamped / 0.33;
+      return `rgb(0, ${Math.round(255 * k)}, ${Math.round(255 * (1 - k))})`;
+    } else if (clamped < 0.66) {
+      const k = (clamped - 0.33) / 0.33;
+      return `rgb(${Math.round(255 * k)}, 255, 0)`;
+    } else {
+      const k = (clamped - 0.66) / 0.34;
+      return `rgb(255, ${Math.round(255 * (1 - k))}, 0)`;
+    }
+  }
+
+  // Helper: compute target center for a piece in current scale
+  function targetCenter(pp) {
+    const tx = originX + (pp.meta.x - puzzleMeta.minX) * s + (pp.sw || 0) / 2;
+    const ty = originY + (pp.meta.y - puzzleMeta.minY) * s + (pp.sh || 0) / 2;
+    return { x: tx, y: ty };
+  }
+
+  // Helper: transform stored snapshot position to current display coordinates
+  function transformStoredPos(stored, currentPiece) {
+    if (!stored || !currentPiece) return null;
+    const storedSw = stored.sw || 1;
+    const storedSh = stored.sh || 1;
+    const storedMetaX = stored.metaX;
+    const storedMetaY = stored.metaY;
+    const storedTargetX = originX + (storedMetaX - puzzleMeta.minX) * s + storedSw / 2;
+    const storedTargetY = originY + (storedMetaY - puzzleMeta.minY) * s + storedSh / 2;
+    const dx = stored.x - storedTargetX;
+    const dy = stored.y - storedTargetY;
+    const curTarget = targetCenter(currentPiece);
+    const curSw = currentPiece.sw || 1;
+    const scale = curSw / (storedSw || curSw || 1);
+    return { x: curTarget.x + dx * scale, y: curTarget.y + dy * scale };
+  }
+
+  // Helper: create SVG star path
+  function starPath(cx, cy, r) {
+    const points = [];
+    for (let i = 0; i < 5; i++) {
+      const angle = (i * 4 * Math.PI) / 5 - Math.PI / 2;
+      const x = cx + r * Math.cos(angle);
+      const y = cy + r * Math.sin(angle);
+      points.push(`${x},${y}`);
+    }
+    return points.join(' ');
+  }
+
+  const paths = [];
+  const markers = [];
+
+  // Draw grid outline
+  if (puzzleMeta.maxX > puzzleMeta.minX && puzzleMeta.maxY > puzzleMeta.minY) {
+    paths.push(`<rect x="${originX}" y="${originY}" width="${W}" height="${H}" fill="none" stroke="#e1e1e1" stroke-width="2" rx="6" />`);
+  }
+
+  // For each piece, collect movement history
+  for (const piece of allPieces) {
+    if (!piece || typeof piece.index === 'undefined') continue;
+
+    const path = [];
+    for (let i = 0; i < globalSnapshots.length; i++) {
+      const snap = globalSnapshots[i];
+      const posData = snap.positions[piece.index];
+      if (posData) {
+        const transformed = transformStoredPos(posData, piece);
+        if (transformed) {
+          path.push({
+            x: transformed.x,
+            y: transformed.y,
+            time: i / Math.max(1, globalSnapshots.length - 1),
+            snapshotIdx: i
+          });
+        }
+      }
+    }
+
+    if (path.length < 2) continue;
+
+    // Identify station points
+    const stations = [];
+    let i = 0;
+    while (i < path.length) {
+      const current = path[i];
+      let j = i + 1;
+      while (j < path.length) {
+        const dist = Math.hypot(path[j].x - current.x, path[j].y - current.y);
+        if (dist < 10) {
+          j++;
+        } else {
+          break;
+        }
+      }
+      const stayDuration = j - i;
+      if (stayDuration >= 3 || i === 0 || j >= path.length) {
+        stations.push({
+          x: current.x,
+          y: current.y,
+          time: current.time,
+          isFirst: i === 0,
+          isLast: j >= path.length,
+          duration: stayDuration
+        });
+      }
+      i = Math.max(i + 1, j);
+    }
+
+    // Helper: Catmull-Rom spline interpolation
+    function catmullRomPoint(p0, p1, p2, p3, t) {
+      const t2 = t * t;
+      const t3 = t2 * t;
+      return {
+        x: 0.5 * ((2 * p1.x) +
+          (-p0.x + p2.x) * t +
+          (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+          (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+        y: 0.5 * ((2 * p1.y) +
+          (-p0.y + p2.y) * t +
+          (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+          (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3)
+      };
+    }
+
+    // Draw smooth curves with time-based colors
+    for (let i = 0; i < path.length - 1; i++) {
+      // Get 4 points for Catmull-Rom spline (handle edges)
+      const p0 = i > 0 ? path[i - 1] : path[i];
+      const p1 = path[i];
+      const p2 = path[i + 1];
+      const p3 = i + 2 < path.length ? path[i + 2] : path[i + 1];
+
+      // Calculate weight based on ORIGINAL snapshot distance (slow movement = thicker)
+      const snapshotDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      // Inverse relationship: small distance = slow movement = thick line
+      let weight;
+      if (snapshotDist < 5) {
+        weight = 4; // Very slow/stationary
+      } else if (snapshotDist < 20) {
+        weight = 3; // Moderate speed
+      } else if (snapshotDist < 50) {
+        weight = 2.5; // Normal speed
+      } else {
+        weight = 2; // Fast movement
+      }
+
+      // Subdivide the curve into small segments for color gradient
+      const segments = 15;
+      for (let seg = 0; seg < segments; seg++) {
+        const t1 = seg / segments;
+        const t2 = (seg + 1) / segments;
+
+        const pt1 = catmullRomPoint(p0, p1, p2, p3, t1);
+        const pt2 = catmullRomPoint(p0, p1, p2, p3, t2);
+
+        // Interpolate time between p1 and p2
+        const time = p1.time + (p2.time - p1.time) * ((t1 + t2) / 2);
+        const color = timeColorSvg(time);
+
+        paths.push(`<line x1="${pt1.x}" y1="${pt1.y}" x2="${pt2.x}" y2="${pt2.y}" stroke="${color}" stroke-opacity="0.78" stroke-width="${weight}" stroke-linecap="round" />`);
+      }
+    }
+
+    // Draw station markers
+    for (const station of stations) {
+      const color = timeColorSvg(station.time);
+
+      if (station.isFirst) {
+        // Square (blue) - darker stroke for visibility on white background
+        markers.push(`<rect x="${station.x - 5}" y="${station.y - 5}" width="10" height="10" fill="rgb(0,0,255)" fill-opacity="0.9" stroke="rgb(0,0,150)" stroke-width="1.5" />`);
+      } else if (station.isLast) {
+        // Star (red) - darker stroke for visibility
+        markers.push(`<polygon points="${starPath(station.x, station.y, 6)}" fill="rgb(255,0,0)" fill-opacity="0.9" stroke="rgb(150,0,0)" stroke-width="1.5" />`);
+      } else {
+        // Circle (time-colored) - darker stroke version of fill color
+        markers.push(`<circle cx="${station.x}" cy="${station.y}" r="6" fill="${color}" fill-opacity="0.9" stroke="rgba(0,0,0,0.3)" stroke-width="1.2" />`);
+      }
+    }
+  }
+
+  // Legend
+  const legendW = Math.min(200, width * 0.3);
+  const legendH = 12;
+  const legendX = width - legendW - 20;
+  const legendY = 20;
+
+  const legendStops = [];
+  const steps = 40;
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1);
+    const color = timeColorSvg(t);
+    const x = legendX + (legendW * i) / steps;
+    legendStops.push(`<rect x="${x}" y="${legendY}" width="${legendW / steps + 0.5}" height="${legendH}" fill="${color}" />`);
+  }
+
+  const markerY = legendY + legendH + 24;
+  const legend = `
+    ${legendStops.join("")}
+    <rect x="${legendX}" y="${legendY}" width="${legendW}" height="${legendH}" fill="none" stroke="#969696" stroke-width="1" />
+    <text x="${legendX}" y="${legendY + legendH + 14}" text-anchor="start" font-size="11" fill="#505050">${t("pathStart") || "Start"}</text>
+    <text x="${legendX + legendW}" y="${legendY + legendH + 14}" text-anchor="end" font-size="11" fill="#505050">${t("pathEnd") || "End"}</text>
+
+    <text x="${legendX}" y="${markerY}" text-anchor="start" font-size="10" fill="#666">${t("pathMarkers") || "Markers"}:</text>
+    <rect x="${legendX}" y="${markerY + 8}" width="8" height="8" fill="rgb(0,0,255)" fill-opacity="0.7" stroke="#ffffff" stroke-width="1" />
+    <text x="${legendX + 14}" y="${markerY + 12}" text-anchor="start" dominant-baseline="middle" font-size="10" fill="#505050">${t("pathStartMarker") || "Start"}</text>
+
+    <circle cx="${legendX + 6}" cy="${markerY + 24}" r="6" fill="rgb(0,255,0)" fill-opacity="0.7" stroke="#ffffff" stroke-width="1" />
+    <text x="${legendX + 18}" y="${markerY + 24}" text-anchor="start" dominant-baseline="middle" font-size="10" fill="#505050">${t("pathStopMarker") || "Stop"}</text>
+
+    <polygon points="${starPath(legendX + 4, markerY + 36, 5)}" fill="rgb(255,0,0)" fill-opacity="0.7" stroke="#ffffff" stroke-width="1" />
+    <text x="${legendX + 14}" y="${markerY + 36}" text-anchor="start" dominant-baseline="middle" font-size="10" fill="#505050">${t("pathEndMarker") || "End"}</text>
+  `;
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <rect x="0" y="0" width="${width}" height="${height}" fill="#f5f5f5"/>
+  ${paths.join("")}
+  ${markers.join("")}
+  ${legend}
+</svg>`;
+}
+
 function renderTimer() {
   const el = document.getElementById("timerDisplay");
   if (!el) return;
@@ -520,6 +758,7 @@ function updateAnalyticsDesc() {
   if (styleState.analyticsView === "heatmap") analyticsDesc.textContent = t("analyticsDescHeatmap");
   else if (styleState.analyticsView === "grabs") analyticsDesc.textContent = t("analyticsDescGrabs");
   else if (styleState.analyticsView === "connections") analyticsDesc.textContent = t("analyticsDescConnections");
+  else if (styleState.analyticsView === "paths") analyticsDesc.textContent = t("analyticsDescPaths");
   else analyticsDesc.textContent = t("analyticsDescNone");
 }
 
@@ -552,8 +791,16 @@ function updateConnectionsUI() {
   }
 }
 
+function updatePathsUI() {
+  const pathsLegend = document.getElementById('pathsLegend');
+  if (!pathsLegend) return;
+  const show = styleState.analyticsView === 'paths';
+  pathsLegend.style.display = show ? '' : 'none';
+}
+
 function canExportHeatmap() {
   if (styleState.analyticsView === "connections") return true;
+  if (styleState.analyticsView === "paths") return globalSnapshots && globalSnapshots.length >= 2;
   if (styleState.analyticsView !== "heatmap" && styleState.analyticsView !== "grabs") return false;
   return (puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 4 && puzzleGrid.cols === 4) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6);
 }
@@ -801,6 +1048,15 @@ async function startPuzzleFromGallery() {
   const src = item.sizes[selectedSize];
   if (!src) return;
 
+  // Store image source for preview
+  window.__currentPuzzleImageSrc = src.image;
+
+  // Stop any running intervals
+  if (dragTrackInterval) {
+    clearInterval(dragTrackInterval);
+    dragTrackInterval = null;
+  }
+
   styleState.analyticsView = "none";
   const analyticsView = document.getElementById('analyticsView');
   if (analyticsView) analyticsView.value = "none";
@@ -812,6 +1068,7 @@ async function startPuzzleFromGallery() {
 
   updateAnalyticsDesc();
   updateConnectionsUI();
+  updatePathsUI();
 
   redraw();
   resetTimer();
@@ -836,6 +1093,76 @@ async function startPuzzleFromGallery() {
   }
 }
 
+// Helper function to generate random position avoiding the target grid area
+function randomPositionOutsideGrid(pieceWidth, pieceHeight, canvasWidth, canvasHeight) {
+  const { originX, originY, W, H } = gridRectScaled(canvasWidth, canvasHeight);
+  const margin = 30; // Minimum distance from grid area
+
+  // Define forbidden area (target grid + margin)
+  const gridLeft = originX - margin;
+  const gridRight = originX + W + margin;
+  const gridTop = originY - margin;
+  const gridBottom = originY + H + margin;
+
+  // Available areas: left, right, top, bottom
+  const areas = [];
+
+  // Left area
+  if (gridLeft > pieceWidth) {
+    areas.push({
+      minX: 0,
+      maxX: gridLeft - pieceWidth,
+      minY: 0,
+      maxY: canvasHeight - pieceHeight
+    });
+  }
+
+  // Right area
+  if (canvasWidth - gridRight > pieceWidth) {
+    areas.push({
+      minX: gridRight,
+      maxX: canvasWidth - pieceWidth,
+      minY: 0,
+      maxY: canvasHeight - pieceHeight
+    });
+  }
+
+  // Top area
+  if (gridTop > pieceHeight) {
+    areas.push({
+      minX: 0,
+      maxX: canvasWidth - pieceWidth,
+      minY: 0,
+      maxY: gridTop - pieceHeight
+    });
+  }
+
+  // Bottom area
+  if (canvasHeight - gridBottom > pieceHeight) {
+    areas.push({
+      minX: 0,
+      maxX: canvasWidth - pieceWidth,
+      minY: gridBottom,
+      maxY: canvasHeight - pieceHeight
+    });
+  }
+
+  // If no area available (grid too large), fallback to random position
+  if (areas.length === 0) {
+    return {
+      x: Math.random() * Math.max(1, canvasWidth - pieceWidth),
+      y: Math.random() * Math.max(1, canvasHeight - pieceHeight)
+    };
+  }
+
+  // Pick random area and random position within it
+  const area = areas[Math.floor(Math.random() * areas.length)];
+  return {
+    x: area.minX + Math.random() * Math.max(1, area.maxX - area.minX),
+    y: area.minY + Math.random() * Math.max(1, area.maxY - area.minY)
+  };
+}
+
 async function runPuzzleLoad(formData) {
   const data = await uploadPuzzle(formData);
   if (typeof data.rows !== 'number' || typeof data.cols !== 'number' || !data.meta || !Array.isArray(data.pieces) || !data.pieces.length) {
@@ -852,6 +1179,8 @@ async function runPuzzleLoad(formData) {
       heatmapExport.textContent = t("exportGrabsLabel");
     } else if (styleState.analyticsView === "connections") {
       heatmapExport.textContent = t("exportConnectionsLabel");
+    } else if (styleState.analyticsView === "paths") {
+      heatmapExport.textContent = t("exportPathsLabel");
     } else {
       heatmapExport.textContent = t("heatmapExport");
     }
@@ -861,8 +1190,9 @@ async function runPuzzleLoad(formData) {
   for (const item of data.pieces) {
     const img = await new Promise((ok, err) => loadImage('data:image/png;base64,' + item.b64, ok, err));
     const p = new PuzzlePiece(img, 0, 0, item.r, item.c, idx++, { x:item.x, y:item.y, w:item.w, h:item.h });
-    p.x = Math.random() * Math.max(1, width - p.sw);
-    p.y = Math.random() * Math.max(1, height - p.sh);
+    const pos = randomPositionOutsideGrid(p.sw, p.sh, width, height);
+    p.x = pos.x;
+    p.y = pos.y;
     // initialize per-piece snapshot index list
     p.snapshots = [];
     registerPiece(p);
@@ -917,6 +1247,7 @@ export function wireControls() {
       styleState.analyticsView = analyticsView.value || "none";
       updateAnalyticsDesc();
       updateConnectionsUI();
+      updatePathsUI();
       redraw();
     });
   }
@@ -930,6 +1261,7 @@ export function wireControls() {
   }
   // initialize connections UI visibility
   updateConnectionsUI();
+  updatePathsUI();
   const heatmapExport = document.getElementById('heatmapExport');
   if (heatmapExport) {
     const updateExportState = () => {
@@ -940,6 +1272,8 @@ export function wireControls() {
         heatmapExport.textContent = t("exportGrabsLabel");
       } else if (styleState.analyticsView === "connections") {
         heatmapExport.textContent = t("exportConnectionsLabel");
+      } else if (styleState.analyticsView === "paths") {
+        heatmapExport.textContent = t("exportPathsLabel");
       } else {
         heatmapExport.textContent = t("heatmapExport");
       }
@@ -959,6 +1293,15 @@ export function wireControls() {
       if (styleState.analyticsView === "connections") {
         const svg = buildConnectionsSvg(puzzleGrid.rows, puzzleGrid.cols, listPieces());
         downloadSvg(`connections-${puzzleGrid.rows}x${puzzleGrid.cols}.svg`, svg);
+        return;
+      }
+      if (styleState.analyticsView === "paths") {
+        const svg = buildMovementPathsSvg();
+        if (!svg) {
+          alert(t("noPathData") || "Not enough movement data to export.");
+          return;
+        }
+        downloadSvg(`paths-${puzzleGrid.rows}x${puzzleGrid.cols}.svg`, svg);
         return;
       }
       const svg = buildHeatmapSvg(puzzleGrid.rows, puzzleGrid.cols, listPieces(), timerState.elapsed);
@@ -981,6 +1324,49 @@ export function wireControls() {
     resetTimer();
     setStartScreenVisible(true);
   });
+
+  // Preview image modal
+  const previewModal = document.getElementById('previewModal');
+  const previewImageElement = document.getElementById('previewImageElement');
+  const previewButton = document.getElementById('previewImage');
+
+  if (previewButton && previewModal && previewImageElement) {
+    previewButton.addEventListener('click', () => {
+      const pieces = listPieces();
+      if (!pieces || pieces.length === 0) {
+        alert(t("noActivePuzzle") || "No active puzzle to preview.");
+        return;
+      }
+
+      const imgSrc = window.__currentPuzzleImageSrc;
+
+      if (!imgSrc) {
+        alert(t("previewUnavailable") || "Preview unavailable.");
+        return;
+      }
+
+      previewImageElement.src = imgSrc;
+      previewImageElement.alt = t("previewTitle") || "Puzzle preview";
+      previewModal.removeAttribute('hidden');
+      window.__modalOpen = true;
+    });
+
+    // Close on click anywhere on modal overlay
+    previewModal.addEventListener('click', (e) => {
+      if (e.target === previewModal) {
+        previewModal.setAttribute('hidden', '');
+        window.__modalOpen = false;
+      }
+    });
+
+    // Close on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !previewModal.hasAttribute('hidden')) {
+        previewModal.setAttribute('hidden', '');
+        window.__modalOpen = false;
+      }
+    });
+  }
 
   // Confirm modal wiring
   const modal = document.getElementById('confirmLeaveModal');
@@ -1042,6 +1428,8 @@ export function wireControls() {
           heatmapExport.textContent = t("exportGrabsLabel");
         } else if (styleState.analyticsView === "connections") {
           heatmapExport.textContent = t("exportConnectionsLabel");
+        } else if (styleState.analyticsView === "paths") {
+          heatmapExport.textContent = t("exportPathsLabel");
         } else {
           heatmapExport.textContent = t("heatmapExport");
         }
@@ -1080,11 +1468,17 @@ export function wireControls() {
   ps.addEventListener('input', () => {
     styleState.pieceScale = parseInt(ps.value,10) / 100;
     document.getElementById('pieceScaleLbl').textContent = `${Math.round(styleState.pieceScale*100)}%`;
-    for (const p of window.__pieces) if (p.solved) p.moveToTarget(); else clampPiece(p);
+    for (const p of window.__pieces) if (p.solved) p.moveToTarget(); else clampPieceOutsideGrid(p);
     redraw();
   });
 
   document.getElementById('shuffle').addEventListener('click', () => {
+    // Stop any running intervals
+    if (dragTrackInterval) {
+      clearInterval(dragTrackInterval);
+      dragTrackInterval = null;
+    }
+
     const loading = document.getElementById('startLoading');
     if (loading) {
       // show a brief loading hint and run shuffle asynchronously so the UI can update
@@ -1119,6 +1513,12 @@ export function wireControls() {
   });
 
   document.getElementById('clear').addEventListener('click', () => {
+    // Stop any running intervals
+    if (dragTrackInterval) {
+      clearInterval(dragTrackInterval);
+      dragTrackInterval = null;
+    }
+
     resetScene();
     window.__pieces = [];
     window.__groups = [];
@@ -1192,6 +1592,22 @@ export function wireControls() {
           }
           if (closest) window.__draggedPiece = closest;
         } catch (_) {}
+
+        // Start tracking drag path - record position every 150ms
+        if (dragTrackInterval) clearInterval(dragTrackInterval);
+        dragTrackInterval = setInterval(() => {
+          if (window.__dragging) {
+            try {
+              const snapIdx = addGlobalSnapshot(listPieces());
+              for (const p of listPieces()) {
+                if (!p) continue;
+                p.snapshots = p.snapshots || [];
+                p.snapshots.push(snapIdx);
+              }
+            } catch (_) {}
+          }
+        }, 150); // 150ms = ~7 snapshots/second for smooth professional curves
+
         redraw();
         return;
       }
@@ -1211,6 +1627,13 @@ export function wireControls() {
 
   window.__onMouseReleased = () => {
     if (window.__modalOpen) return;
+
+    // Stop drag tracking interval
+    if (dragTrackInterval) {
+      clearInterval(dragTrackInterval);
+      dragTrackInterval = null;
+    }
+
     if (styleState.analyticsView === "none") finishGrab();
     const g = window.__dragging;
     if (!g) return;

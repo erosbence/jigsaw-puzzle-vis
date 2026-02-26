@@ -420,6 +420,274 @@ export function drawGrabPoints(width, height, pieces) {
   }
 }
 
+// Time-based color gradient: blue → green → yellow → red
+function timeColor(t) {
+  const clamped = Math.max(0, Math.min(1, t));
+  // Blue (0,0,255) → Green (0,255,0) → Yellow (255,255,0) → Red (255,0,0)
+  if (clamped < 0.33) {
+    // Blue → Green
+    const k = clamped / 0.33;
+    return [0, Math.round(255 * k), Math.round(255 * (1 - k))];
+  } else if (clamped < 0.66) {
+    // Green → Yellow
+    const k = (clamped - 0.33) / 0.33;
+    return [Math.round(255 * k), 255, 0];
+  } else {
+    // Yellow → Red
+    const k = (clamped - 0.66) / 0.34;
+    return [255, Math.round(255 * (1 - k)), 0];
+  }
+}
+
+export function drawMovementPaths(width, height, pieces) {
+  if (!globalSnapshots || globalSnapshots.length < 2) {
+    // Not enough data to draw paths
+    push();
+    fill(100);
+    textAlign(CENTER, CENTER);
+    textSize(16);
+    text(t("noPathData") || "Not enough movement data yet. Play to see paths!", width / 2, height / 2);
+    pop();
+    return;
+  }
+
+  const { originX, originY, W, H, s } = gridRectScaled(width, height);
+  const allPieces = listPieces();
+
+  // Draw background grid outline
+  if (puzzleMeta.maxX > puzzleMeta.minX && puzzleMeta.maxY > puzzleMeta.minY) {
+    push();
+    noFill();
+    stroke(225);
+    strokeWeight(2);
+    rect(originX + 0.5, originY + 0.5, W, H, 6);
+    pop();
+  }
+
+  // Helper: compute target center for a piece in current scale
+  function targetCenter(pp) {
+    const tx = originX + (pp.meta.x - puzzleMeta.minX) * s + (pp.sw || 0) / 2;
+    const ty = originY + (pp.meta.y - puzzleMeta.minY) * s + (pp.sh || 0) / 2;
+    return { x: tx, y: ty };
+  }
+
+  // Helper: transform stored snapshot position to current display coordinates
+  function transformStoredPos(stored, currentPiece) {
+    if (!stored || !currentPiece) return null;
+    const storedSw = stored.sw || 1;
+    const storedSh = stored.sh || 1;
+    const storedMetaX = stored.metaX;
+    const storedMetaY = stored.metaY;
+    // Compute where the target center was in the snapshot's coordinate system
+    const storedTargetX = originX + (storedMetaX - puzzleMeta.minX) * s + storedSw / 2;
+    const storedTargetY = originY + (storedMetaY - puzzleMeta.minY) * s + storedSh / 2;
+    // Compute offset from target in snapshot
+    const dx = stored.x - storedTargetX;
+    const dy = stored.y - storedTargetY;
+    // Get current target center
+    const curTarget = targetCenter(currentPiece);
+    const curSw = currentPiece.sw || 1;
+    // Scale factor between stored size and current size
+    const scale = curSw / (storedSw || curSw || 1);
+    // Apply scaled offset to current target
+    return { x: curTarget.x + dx * scale, y: curTarget.y + dy * scale };
+  }
+
+  // Helper: draw a star shape
+  function drawStar(cx, cy, r, color, alpha) {
+    push();
+    fill(color[0], color[1], color[2], alpha);
+    noStroke();
+    beginShape();
+    for (let i = 0; i < 5; i++) {
+      const angle = (i * 4 * PI) / 5 - PI / 2;
+      const x = cx + r * cos(angle);
+      const y = cy + r * sin(angle);
+      vertex(x, y);
+    }
+    endShape(CLOSE);
+    pop();
+  }
+
+  // For each piece, collect its movement history from snapshots
+  for (const piece of allPieces) {
+    if (!piece || typeof piece.index === 'undefined') continue;
+
+    const path = [];
+    for (let i = 0; i < globalSnapshots.length; i++) {
+      const snap = globalSnapshots[i];
+      const posData = snap.positions[piece.index];
+      if (posData) {
+        // Transform snapshot position to current scale
+        const transformed = transformStoredPos(posData, piece);
+        if (transformed) {
+          path.push({
+            x: transformed.x,
+            y: transformed.y,
+            time: i / Math.max(1, globalSnapshots.length - 1),
+            snapshotIdx: i
+          });
+        }
+      }
+    }
+
+    if (path.length < 2) continue; // Need at least 2 points to draw a path
+
+    // Skip pieces that never moved - no meaningful path to visualize
+    const firstPos = path[0];
+    const lastPos = path[path.length - 1];
+    const totalDist = Math.hypot(lastPos.x - firstPos.x, lastPos.y - firstPos.y);
+    if (totalDist < 5) continue; // No meaningful movement (threshold: 5 pixels)
+
+    // Identify "station" points - where the piece stayed still for multiple snapshots
+    const stations = [];
+    let i = 0;
+    while (i < path.length) {
+      const current = path[i];
+      let j = i + 1;
+      // Count how many consecutive snapshots have the same position (within threshold)
+      while (j < path.length) {
+        const dist = Math.hypot(path[j].x - current.x, path[j].y - current.y);
+        if (dist < 10) { // Same position threshold (10 pixels) - increased to avoid marking slow drag as stations
+          j++;
+        } else {
+          break;
+        }
+      }
+      const stayDuration = j - i;
+      if (stayDuration >= 3 || i === 0 || j >= path.length) {
+        // This is a station: piece stayed here for >=450ms (3 snapshots @ 150ms interval) or start/end
+        stations.push({
+          x: current.x,
+          y: current.y,
+          time: current.time,
+          isFirst: i === 0,
+          isLast: j >= path.length
+        });
+      }
+      i = Math.max(i + 1, j);
+    }
+
+    // Helper: Catmull-Rom spline interpolation
+    function catmullRomPoint(p0, p1, p2, p3, t) {
+      const t2 = t * t;
+      const t3 = t2 * t;
+      return {
+        x: 0.5 * ((2 * p1.x) +
+          (-p0.x + p2.x) * t +
+          (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+          (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+        y: 0.5 * ((2 * p1.y) +
+          (-p0.y + p2.y) * t +
+          (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+          (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3)
+      };
+    }
+
+    // Draw the path as smooth curves with time-based colors
+    push();
+    noFill();
+    for (let i = 0; i < path.length - 1; i++) {
+      // Get 4 points for Catmull-Rom spline (handle edges)
+      const p0 = i > 0 ? path[i - 1] : path[i];
+      const p1 = path[i];
+      const p2 = path[i + 1];
+      const p3 = i + 2 < path.length ? path[i + 2] : path[i + 1];
+
+      // Calculate weight based on ORIGINAL snapshot distance (slow movement = thicker)
+      const snapshotDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      // Inverse relationship: small distance = slow movement = thick line
+      let weight;
+      if (snapshotDist < 5) {
+        weight = 4; // Very slow/stationary
+      } else if (snapshotDist < 20) {
+        weight = 3; // Moderate speed
+      } else if (snapshotDist < 50) {
+        weight = 2.5; // Normal speed
+      } else {
+        weight = 2; // Fast movement
+      }
+
+      // Subdivide the curve into small segments for color gradient
+      const segments = 15;
+      for (let seg = 0; seg < segments; seg++) {
+        const t1 = seg / segments;
+        const t2 = (seg + 1) / segments;
+
+        const pt1 = catmullRomPoint(p0, p1, p2, p3, t1);
+        const pt2 = catmullRomPoint(p0, p1, p2, p3, t2);
+
+        // Interpolate time between p1 and p2
+        const time = p1.time + (p2.time - p1.time) * ((t1 + t2) / 2);
+        const [r, g, b] = timeColor(time);
+
+        stroke(r, g, b, 200);
+        strokeWeight(weight);
+        line(pt1.x, pt1.y, pt2.x, pt2.y);
+      }
+    }
+    pop();
+
+    // Draw station markers
+    for (const station of stations) {
+      const [r, g, b] = timeColor(station.time);
+
+      if (station.isFirst) {
+        // First station: square (blue) - larger size
+        push();
+        fill(0, 0, 255, 180);
+        stroke(255, 255, 255, 200);
+        strokeWeight(2);
+        rectMode(CENTER);
+        rect(station.x, station.y, 14, 14);
+        pop();
+      } else if (station.isLast) {
+        // Last station: star (red) - larger size
+        drawStar(station.x, station.y, 8, [255, 0, 0], 180);
+        push();
+        noFill();
+        stroke(255, 255, 255, 200);
+        strokeWeight(2);
+        drawStar(station.x, station.y, 8, [255, 255, 255], 0); // outline only
+        pop();
+      } else {
+        // Intermediate station: circle (time-colored) - larger size
+        push();
+        fill(r, g, b, 180);
+        stroke(255, 255, 255, 200);
+        strokeWeight(2);
+        circle(station.x, station.y, 16);
+        pop();
+      }
+    }
+  }
+
+  // Helper function to draw tooltip bubble
+  function drawTooltip(x, y, label) {
+    push();
+    textSize(11);
+    const tw = textWidth(label);
+    const th = 16;
+    const padding = 6;
+    const boxW = tw + padding * 2;
+    const boxH = th + padding * 2;
+
+    // Background bubble
+    fill(40, 40, 40, 230);
+    noStroke();
+    rect(x - boxW / 2, y - boxH, boxW, boxH, 4);
+
+    // Text
+    fill(255);
+    textAlign(CENTER, TOP);
+    text(label, x, y - boxH + padding);
+    pop();
+  }
+
+  // Legend moved to HTML side panel (see index.html pathsLegend element)
+  // SVG export generates its own legend in buildMovementPathsSvg (controls.js)
+}
+
 export function drawPiece(piece, st) {
   const sw = piece.sw, sh = piece.sh;
 
