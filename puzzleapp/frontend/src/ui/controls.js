@@ -207,6 +207,257 @@ function buildGrabSvg(rows, cols, pieces) {
 </svg>`;
 }
 
+function buildConnectionsSvg(rows, cols, pieces) {
+  const canvasW = bounds.w || 640;
+  const canvasH = bounds.h || 640;
+  const { originX, originY, W, H, s } = gridRectScaled(canvasW, canvasH);
+  const width = canvasW;
+  const height = canvasH;
+
+  const allPieces = listPieces();
+
+  // Helper: compute target center for a piece
+  function targetCenter(pp) {
+    const tx = originX + (pp.meta.x - puzzleMeta.minX) * s + (pp.sw || 0) / 2;
+    const ty = originY + (pp.meta.y - puzzleMeta.minY) * s + (pp.sh || 0) / 2;
+    return { x: tx, y: ty };
+  }
+
+  // Default positions using current piece centers
+  const positionsDefault = {};
+  for (const pp of allPieces) {
+    if (!pp || typeof pp.index === 'undefined') continue;
+    positionsDefault[pp.index] = { x: pp.x + pp.sw / 2, y: pp.y + pp.sh / 2 };
+  }
+
+  // Node positions fixed to target centers
+  const nodePositions = {};
+  for (const pp of allPieces) {
+    if (!pp || typeof pp.index === 'undefined') continue;
+    nodePositions[pp.index] = targetCenter(pp);
+  }
+
+  // Determine global snapshot to use
+  let globalIdx = undefined;
+  if (connectionsState && typeof connectionsState.selected !== 'undefined' && connectionsState.selected != null) {
+    const selIdxLocal = connectionsState.selected;
+    const pLocal = allPieces[selIdxLocal];
+    if (pLocal) {
+      const snapList = pLocal.snapshots || [];
+      const sIdx = Math.max(0, Math.min((connectionsState.snapshotIdx || 0), snapList.length - 1));
+      globalIdx = snapList[sIdx];
+    }
+  }
+  if (typeof globalIdx === 'undefined' && globalSnapshots && globalSnapshots.length) {
+    globalIdx = globalSnapshots.length - 1;
+  }
+
+  const positions = (typeof globalIdx !== 'undefined' && globalSnapshots[globalIdx]) ? (globalSnapshots[globalIdx].positions || {}) : {};
+
+  // Transform snapshot positions to current display coordinates
+  const positionsTransformed = {};
+  function transformStoredPos(stored, currentPiece) {
+    if (!stored || !currentPiece) return null;
+    const storedSw = stored.sw || 1;
+    const storedSh = stored.sh || 1;
+    const storedMetaX = stored.metaX;
+    const storedMetaY = stored.metaY;
+    const storedTargetX = originX + (storedMetaX - puzzleMeta.minX) * s + storedSw / 2;
+    const storedTargetY = originY + (storedMetaY - puzzleMeta.minY) * s + storedSh / 2;
+    const dx = stored.x - storedTargetX;
+    const dy = stored.y - storedTargetY;
+    const curTarget = targetCenter(currentPiece);
+    const curSw = currentPiece.sw || 1;
+    const scale = curSw / (storedSw || curSw || 1);
+    return { x: curTarget.x + dx * scale, y: curTarget.y + dy * scale };
+  }
+  for (const pp of allPieces) {
+    if (!pp || typeof pp.index === 'undefined') continue;
+    const stored = positions[pp.index];
+    const tpos = transformStoredPos(stored, pp);
+    if (tpos) positionsTransformed[pp.index] = tpos;
+  }
+
+  const basePosMap = (Object.keys(positionsTransformed).length) ? positionsTransformed : positionsDefault;
+
+  // Build SVG elements
+  const bgLines = [];
+  const selectedLines = [];
+  const nodes = [];
+
+  // Draw faint background edges for all nodes
+  for (const pp of allPieces) {
+    if (!pp || typeof pp.index === 'undefined') continue;
+    const aPos = basePosMap[pp.index];
+    if (!aPos) continue;
+    let node_n = 0;
+    if (pp.r > 0) node_n++;
+    if (pp.r < rows - 1) node_n++;
+    if (pp.c > 0) node_n++;
+    if (pp.c < cols - 1) node_n++;
+    if (node_n <= 0) continue;
+    const arr = [];
+    for (const qq of allPieces) {
+      if (!qq || typeof qq.index === 'undefined' || qq.index === pp.index) continue;
+      const bPos = basePosMap[qq.index];
+      if (!bPos) continue;
+      const d = Math.hypot(aPos.x - bPos.x, aPos.y - bPos.y);
+      arr.push({ q: qq, idx: qq.index, d });
+    }
+    arr.sort((x, y) => x.d - y.d);
+    const neigh = arr.slice(0, node_n);
+    for (const n of neigh) {
+      const pa = nodePositions[pp.index];
+      const pb = nodePositions[n.idx];
+      if (!pa || !pb) continue;
+      bgLines.push(`<line x1="${pa.x}" y1="${pa.y}" x2="${pb.x}" y2="${pb.y}" stroke="#a0a0a0" stroke-opacity="0.35" stroke-width="1" />`);
+    }
+  }
+
+  // Draw all node markers
+  for (const idStr in nodePositions) {
+    const pos = nodePositions[idStr];
+    if (!pos) continue;
+    nodes.push(`<circle cx="${pos.x}" cy="${pos.y}" r="3" fill="#c8c8c8" fill-opacity="0.8" />`);
+  }
+
+  // Draw selected piece connections if any
+  const selIdx = (connectionsState && typeof connectionsState.selected !== 'undefined') ? connectionsState.selected : null;
+  const p = (selIdx != null) ? allPieces[selIdx] : null;
+
+  if (p) {
+    const distArr = [];
+    const displayA = basePosMap[selIdx];
+    if (displayA) {
+      for (const q of allPieces) {
+        if (!q || typeof q.index === 'undefined' || q.index === selIdx) continue;
+        const displayQ = basePosMap[q.index];
+        if (!displayQ) continue;
+        const d = Math.hypot(displayA.x - displayQ.x, displayA.y - displayQ.y);
+        distArr.push({ q, idx: q.index, d, displayQ });
+      }
+      distArr.sort((a, b) => a.d - b.d);
+
+      let n_sz = 0;
+      if (p.r > 0) n_sz++;
+      if (p.r < rows - 1) n_sz++;
+      if (p.c > 0) n_sz++;
+      if (p.c < cols - 1) n_sz++;
+
+      if (n_sz > 0) {
+        const candidates = distArr.slice(0, n_sz);
+
+        // Compute average reference distance
+        const trueRefs = [];
+        for (const c of candidates) {
+          const q = c.q;
+          const dr = Math.abs(q.r - p.r), dc = Math.abs(q.c - p.c);
+          if (dr + dc === 1) {
+            const ta = targetCenter(p), tb = targetCenter(q);
+            trueRefs.push(Math.hypot(ta.x - tb.x, ta.y - tb.y));
+          }
+        }
+        const avgTrueRef = trueRefs.length ? trueRefs.reduce((a, b) => a + b, 0) / trueRefs.length : Math.max(1, 50); // fallback diagonal
+
+        // Classify edges
+        const correct = [];
+        const incorrect = [];
+        for (const c of candidates) {
+          const q = c.q;
+          const isTrueNeighbor = (Math.abs(q.r - p.r) + Math.abs(q.c - p.c)) === 1;
+          const d_cur = c.d;
+          let d_ref = avgTrueRef;
+          if (isTrueNeighbor) {
+            const ta = targetCenter(p), tb = targetCenter(q);
+            d_ref = Math.hypot(ta.x - tb.x, ta.y - tb.y);
+          }
+
+          // Determine merge state
+          let mergedSnapshotState = null;
+          if (typeof globalIdx !== 'undefined' && globalSnapshots && globalSnapshots[globalIdx] && globalSnapshots[globalIdx].positions) {
+            try {
+              const spos = globalSnapshots[globalIdx].positions || {};
+              const sa = spos[selIdx];
+              const sb = spos[c.idx];
+              if (sa && sb) {
+                if (typeof sa.groupId !== 'undefined' && sa.groupId !== null && typeof sb.groupId !== 'undefined' && sb.groupId !== null) {
+                  mergedSnapshotState = (sa.groupId === sb.groupId);
+                } else {
+                  const dxs = sb.x - sa.x;
+                  const dys = sb.y - sa.y;
+                  const dr_meta = (sb.metaY || 0) - (sa.metaY || 0);
+                  const dc_meta = (sb.metaX || 0) - (sa.metaX || 0);
+                  const isTrueNeighborSnap = Math.abs(dr_meta) + Math.abs(dc_meta) === 1;
+                  let snapMerged = false;
+                  if (isTrueNeighborSnap) {
+                    let signOk = true;
+                    if (dc_meta === 1 && dxs < 0) signOk = false;
+                    if (dc_meta === -1 && dxs > 0) signOk = false;
+                    if (dr_meta === 1 && dys < 0) signOk = false;
+                    if (dr_meta === -1 && dys > 0) signOk = false;
+                    const da = Math.hypot(sa.sw || 1, sa.sh || 1);
+                    const db = Math.hypot(sb.sw || 1, sb.sh || 1);
+                    const avgStoredDiag = Math.max(1, (da + db) / 2);
+                    const dist = Math.hypot(dxs, dys);
+                    if (signOk && dist <= avgStoredDiag * 1.2) snapMerged = true;
+                  }
+                  mergedSnapshotState = snapMerged;
+                }
+              }
+            } catch (_) { mergedSnapshotState = null; }
+          }
+
+          const mergedLive = (p.group && q.group && p.group === q.group);
+          let isMergedForColor;
+          if (typeof globalIdx !== 'undefined' && globalSnapshots && globalSnapshots[globalIdx] && globalSnapshots[globalIdx].positions) {
+            isMergedForColor = (mergedSnapshotState === true);
+          } else {
+            isMergedForColor = mergedLive;
+          }
+
+          if (isMergedForColor && isTrueNeighbor) correct.push({ q: c.q, idx: c.idx, d_cur, d_ref });
+          else incorrect.push({ q: c.q, idx: c.idx, d_cur, d_ref });
+        }
+
+        // Draw correct edges (blue)
+        for (const e of correct) {
+          const startPos = nodePositions[selIdx];
+          const endPos = nodePositions[e.idx];
+          if (!startPos || !endPos) continue;
+          selectedLines.push(`<line x1="${startPos.x}" y1="${startPos.y}" x2="${endPos.x}" y2="${endPos.y}" stroke="#2878dc" stroke-opacity="0.86" stroke-width="2" />`);
+        }
+
+        // Draw wrong edges (dark red or orange)
+        const maxWrong = Math.max(0, n_sz - correct.length);
+        incorrect.sort((a, b) => Math.abs(b.d_cur - b.d_ref) - Math.abs(a.d_cur - a.d_ref));
+        const shownWrong = incorrect.slice(0, maxWrong);
+        for (const e of shownWrong) {
+          const startPos = nodePositions[selIdx];
+          const endPos = nodePositions[e.idx];
+          if (!startPos || !endPos) continue;
+          const color = e.d_cur > e.d_ref ? "#a01414" : "#FF8C00";
+          const opacity = e.d_cur > e.d_ref ? "0.86" : "0.78";
+          selectedLines.push(`<line x1="${startPos.x}" y1="${startPos.y}" x2="${endPos.x}" y2="${endPos.y}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="2" />`);
+        }
+      }
+    }
+
+    // Draw selected piece marker
+    const markerPos = nodePositions[selIdx];
+    if (markerPos) {
+      nodes.push(`<circle cx="${markerPos.x}" cy="${markerPos.y}" r="4" fill="#ffffff" stroke="#333333" stroke-width="1" />`);
+    }
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <rect x="0" y="0" width="${width}" height="${height}" fill="#f5f5f5"/>
+  ${bgLines.join("")}
+  ${selectedLines.join("")}
+  ${nodes.join("")}
+</svg>`;
+}
+
 function renderTimer() {
   const el = document.getElementById("timerDisplay");
   if (!el) return;
@@ -263,7 +514,46 @@ function isPuzzleSolved() {
   return pieces.length > 0 && pieces.every(p => p.solved);
 }
 
+function updateAnalyticsDesc() {
+  const analyticsDesc = document.getElementById('analyticsDesc');
+  if (!analyticsDesc) return;
+  if (styleState.analyticsView === "heatmap") analyticsDesc.textContent = t("analyticsDescHeatmap");
+  else if (styleState.analyticsView === "grabs") analyticsDesc.textContent = t("analyticsDescGrabs");
+  else if (styleState.analyticsView === "connections") analyticsDesc.textContent = t("analyticsDescConnections");
+  else analyticsDesc.textContent = t("analyticsDescNone");
+}
+
+function updateConnectionsUI() {
+  const connectionsControls = document.getElementById('connectionsControls');
+  if (!connectionsControls) return;
+  const show = styleState.analyticsView === 'connections';
+  connectionsControls.style.display = show ? '' : 'none';
+  if (!show) return;
+  const connectionsSelectedIdx = document.getElementById('connectionsSelectedIdx');
+  const connectionsSlider = document.getElementById('connectionsSlider');
+  const sel = connectionsState.selected;
+  if (sel == null) {
+    if (connectionsSelectedIdx) connectionsSelectedIdx.textContent = '—';
+    if (connectionsSlider) { connectionsSlider.max = 0; connectionsSlider.value = 0; }
+    return;
+  }
+  const p = listPieces().find(x => x && x.index === sel);
+  if (!p) {
+    if (connectionsSelectedIdx) connectionsSelectedIdx.textContent = sel;
+    if (connectionsSlider) { connectionsSlider.max = 0; connectionsSlider.value = 0; }
+    return;
+  }
+  if (connectionsSelectedIdx) connectionsSelectedIdx.textContent = String(sel);
+  const len = (p.snapshots && p.snapshots.length) || 0;
+  if (connectionsSlider) {
+    connectionsSlider.max = Math.max(0, len - 1);
+    connectionsState.snapshotIdx = Math.min(connectionsState.snapshotIdx || 0, Math.max(0, len - 1));
+    connectionsSlider.value = connectionsState.snapshotIdx || 0;
+  }
+}
+
 function canExportHeatmap() {
+  if (styleState.analyticsView === "connections") return true;
   if (styleState.analyticsView !== "heatmap" && styleState.analyticsView !== "grabs") return false;
   return (puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 4 && puzzleGrid.cols === 4) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6);
 }
@@ -520,7 +810,8 @@ async function startPuzzleFromGallery() {
     heatmapExport.textContent = t("heatmapExport");
   }
 
-  wireControls();
+  updateAnalyticsDesc();
+  updateConnectionsUI();
 
   redraw();
   resetTimer();
@@ -559,6 +850,8 @@ async function runPuzzleLoad(formData) {
       heatmapExport.textContent = t("exportHeatmapLabel");
     } else if (styleState.analyticsView === "grabs") {
       heatmapExport.textContent = t("exportGrabsLabel");
+    } else if (styleState.analyticsView === "connections") {
+      heatmapExport.textContent = t("exportConnectionsLabel");
     } else {
       heatmapExport.textContent = t("heatmapExport");
     }
@@ -617,13 +910,6 @@ export function wireControls() {
   }
   const analyticsView = document.getElementById('analyticsView');
   const analyticsDesc = document.getElementById('analyticsDesc');
-  const updateAnalyticsDesc = () => {
-    if (!analyticsDesc) return;
-    if (styleState.analyticsView === "heatmap") analyticsDesc.textContent = t("analyticsDescHeatmap");
-    else if (styleState.analyticsView === "grabs") analyticsDesc.textContent = t("analyticsDescGrabs");
-    else if (styleState.analyticsView === "connections") analyticsDesc.textContent = t("analyticsDescConnections");
-    else analyticsDesc.textContent = t("analyticsDescNone");
-  };
   if (analyticsView) {
     styleState.analyticsView = analyticsView.value || "none";
     updateAnalyticsDesc();
@@ -635,34 +921,7 @@ export function wireControls() {
     });
   }
   // Connections view controls
-  const connectionsControls = document.getElementById('connectionsControls');
-  const connectionsSelectedIdx = document.getElementById('connectionsSelectedIdx');
   const connectionsSlider = document.getElementById('connectionsSlider');
-  function updateConnectionsUI() {
-    if (!connectionsControls) return;
-    const show = styleState.analyticsView === 'connections';
-    connectionsControls.style.display = show ? '' : 'none';
-    if (!show) return;
-    const sel = connectionsState.selected;
-    if (sel == null) {
-      if (connectionsSelectedIdx) connectionsSelectedIdx.textContent = '—';
-      if (connectionsSlider) { connectionsSlider.max = 0; connectionsSlider.value = 0; }
-      return;
-    }
-    const p = listPieces().find(x => x && x.index === sel);
-    if (!p) {
-      if (connectionsSelectedIdx) connectionsSelectedIdx.textContent = sel;
-      if (connectionsSlider) { connectionsSlider.max = 0; connectionsSlider.value = 0; }
-      return;
-    }
-    if (connectionsSelectedIdx) connectionsSelectedIdx.textContent = String(sel);
-    const len = (p.snapshots && p.snapshots.length) || 0;
-    if (connectionsSlider) {
-      connectionsSlider.max = Math.max(0, len - 1);
-      connectionsState.snapshotIdx = Math.min(connectionsState.snapshotIdx || 0, Math.max(0, len - 1));
-      connectionsSlider.value = connectionsState.snapshotIdx || 0;
-    }
-  }
   if (connectionsSlider) {
     connectionsSlider.addEventListener('input', () => {
       connectionsState.snapshotIdx = parseInt(connectionsSlider.value, 10) || 0;
@@ -679,6 +938,8 @@ export function wireControls() {
         heatmapExport.textContent = t("exportHeatmapLabel");
       } else if (styleState.analyticsView === "grabs") {
         heatmapExport.textContent = t("exportGrabsLabel");
+      } else if (styleState.analyticsView === "connections") {
+        heatmapExport.textContent = t("exportConnectionsLabel");
       } else {
         heatmapExport.textContent = t("heatmapExport");
       }
@@ -693,6 +954,11 @@ export function wireControls() {
       if (styleState.analyticsView === "grabs") {
         const svg = buildGrabSvg(puzzleGrid.rows, puzzleGrid.cols, listPieces());
         downloadSvg(`grabs-${puzzleGrid.rows}x${puzzleGrid.cols}.svg`, svg);
+        return;
+      }
+      if (styleState.analyticsView === "connections") {
+        const svg = buildConnectionsSvg(puzzleGrid.rows, puzzleGrid.cols, listPieces());
+        downloadSvg(`connections-${puzzleGrid.rows}x${puzzleGrid.cols}.svg`, svg);
         return;
       }
       const svg = buildHeatmapSvg(puzzleGrid.rows, puzzleGrid.cols, listPieces(), timerState.elapsed);
@@ -774,17 +1040,13 @@ export function wireControls() {
           heatmapExport.textContent = t("exportHeatmapLabel");
         } else if (styleState.analyticsView === "grabs") {
           heatmapExport.textContent = t("exportGrabsLabel");
+        } else if (styleState.analyticsView === "connections") {
+          heatmapExport.textContent = t("exportConnectionsLabel");
         } else {
           heatmapExport.textContent = t("heatmapExport");
         }
       }
-      const analyticsDesc = document.getElementById('analyticsDesc');
-      if (analyticsDesc) {
-        if (styleState.analyticsView === "heatmap") analyticsDesc.textContent = t("analyticsDescHeatmap");
-        else if (styleState.analyticsView === "grabs") analyticsDesc.textContent = t("analyticsDescGrabs");
-        else if (styleState.analyticsView === "connections") analyticsDesc.textContent = t("analyticsDescConnections");
-        else analyticsDesc.textContent = t("analyticsDescNone");
-      }
+      updateAnalyticsDesc();
       renderGallery();
       renderSizeOptions();
       updateStartButton();
