@@ -1,6 +1,6 @@
 import { gridRectScaled } from "../ui/layout.js";
 import { t } from "../ui/i18n.js";
-import { styleState, puzzleMeta, listPieces, listWrongLinks, globalSnapshots, connectionsState, puzzleGrid } from "./state.js";
+import { styleState, puzzleMeta, listPieces, listWrongLinks, globalSnapshots, connectionsState, puzzleGrid, hoverPiece } from "./state.js";
 import { averagePieceDiagonal } from "./interaction.js";
 
 export function drawBackground(width, height) {
@@ -396,8 +396,10 @@ export function drawGrabPoints(width, height, pieces) {
   for (const p of pieces || []) {
     const tx = originX + (p.meta.x - puzzleMeta.minX) * s;
     const ty = originY + (p.meta.y - puzzleMeta.minY) * s;
+
     push();
     tint(255, 60);
+    // Always draw piece at 0° orientation in grabs view (target position)
     image(p.img, tx, ty, p.sw, p.sh);
     noTint();
     noFill();
@@ -407,11 +409,15 @@ export function drawGrabPoints(width, height, pieces) {
 
     const grabs = p.grabs || [];
     if (!grabs.length) continue;
+
     push();
     stroke(255, 255, 255, 180);
     strokeWeight(1);
     fill(220, 30, 30, 170);
+
     for (const g of grabs) {
+      // Grab points are in local coordinates (0 to p.w/p.h)
+      // Draw them directly on the unrotated piece image
       const gx = tx + (g.x / p.w) * p.sw;
       const gy = ty + (g.y / p.h) * p.sh;
       circle(gx, gy, 6);
@@ -690,6 +696,18 @@ export function drawMovementPaths(width, height, pieces) {
 
 export function drawPiece(piece, st) {
   const sw = piece.sw, sh = piece.sh;
+  const rot = piece.rotation || 0;
+  const isHovered = hoverPiece === piece;
+
+  push();
+  // Apply rotation transform if piece has rotation
+  if (rot !== 0) {
+    translate(piece.x + sw / 2, piece.y + sh / 2);
+    rotate(radians(rot));
+    translate(-sw / 2, -sh / 2);
+  } else {
+    translate(piece.x, piece.y);
+  }
 
   if (st.outline) {
     const r = Math.max(1, st.outlineW);
@@ -698,7 +716,7 @@ export function drawPiece(piece, st) {
       for (let dy=-r; dy<=r; dy++) {
         if (!dx && !dy) continue;
         const man = Math.abs(dx) + Math.abs(dy);
-        if (man === r || (r > 1 && man >= r)) image(piece.img, piece.x+dx, piece.y+dy, sw, sh);
+        if (man === r || (r > 1 && man >= r)) image(piece.img, dx, dy, sw, sh);
       }
     noTint(); pop();
   }
@@ -710,9 +728,21 @@ export function drawPiece(piece, st) {
     drawingContext.shadowBlur = 6 + Math.round(10 * k);
     drawingContext.shadowOffsetX = 2 + Math.round(4 * k);
     drawingContext.shadowOffsetY = 2 + Math.round(4 * k);
-    image(piece.img, piece.x, piece.y, sw, sh);
+    image(piece.img, 0, 0, sw, sh);
     pop();
   } else {
-    image(piece.img, piece.x, piece.y, sw, sh);
+    image(piece.img, 0, 0, sw, sh);
   }
+
+  // Draw hover highlight border (for rotation preview)
+  if (isHovered && piece.canRotate()) {
+    push();
+    noFill();
+    stroke(60, 150, 255); // Bright blue
+    strokeWeight(3);
+    rect(0, 0, sw, sh);
+    pop();
+  }
+
+  pop();
 }

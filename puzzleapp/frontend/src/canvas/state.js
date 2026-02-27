@@ -16,6 +16,13 @@ export let connectionsState = { selected: null, snapshotIdx: 0 };
 
 export const styleState = { outline: true, outlineW: 1, shadow: true, shadowI: 35, pieceScale: 0.40, analyticsView: "none" };
 
+// Game settings
+export const gameSettings = { rotationEnabled: false };
+
+// Hover piece for rotation (mouse wheel control)
+export let hoverPiece = null;
+export function setHoverPiece(p) { hoverPiece = p; }
+
 export function resetScene() { pieces = []; groups = []; puzzleGrid = { rows: 0, cols: 0 }; }
 export function setPuzzleMeta(meta) { puzzleMeta = meta; }
 export function setPuzzleGrid(rows, cols) { puzzleGrid = { rows, cols }; }

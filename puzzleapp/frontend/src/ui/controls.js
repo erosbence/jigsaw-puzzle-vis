@@ -1,4 +1,4 @@
-﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState, puzzleMeta, bounds, addGlobalSnapshot, globalSnapshots, connectionsState, resetGlobalSnapshots } from "../canvas/state.js";
+﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState, puzzleMeta, bounds, addGlobalSnapshot, globalSnapshots, connectionsState, resetGlobalSnapshots, gameSettings, setHoverPiece } from "../canvas/state.js";
 import { drawPiece } from "../canvas/draw.js";
 import { PuzzlePiece } from "../canvas/piece.js";
 import { Group } from "../canvas/group.js";
@@ -806,8 +806,36 @@ function canExportHeatmap() {
 }
 
 function startGrabAt(piece, mx, my) {
-  const u = (mx - piece.x) / piece.sw;
-  const v = (my - piece.y) / piece.sh;
+  const rot = piece.rotation || 0;
+
+  let u, v;
+
+  if (rot === 0) {
+    // No rotation - simple case
+    u = (mx - piece.x) / piece.sw;
+    v = (my - piece.y) / piece.sh;
+  } else {
+    // Piece is rotated - transform click coordinates back to 0° orientation
+    const centerX = piece.x + piece.sw / 2;
+    const centerY = piece.y + piece.sh / 2;
+
+    // Vector from piece center to click point
+    const dx = mx - centerX;
+    const dy = my - centerY;
+
+    // Rotate backwards (inverse rotation)
+    const angleRad = (-rot * Math.PI) / 180; // Negative to reverse rotation
+    const cosA = Math.cos(angleRad);
+    const sinA = Math.sin(angleRad);
+
+    const unrotatedX = dx * cosA - dy * sinA;
+    const unrotatedY = dx * sinA + dy * cosA;
+
+    // Convert back to piece-relative coordinates (0 to 1)
+    u = (unrotatedX + piece.sw / 2) / piece.sw;
+    v = (unrotatedY + piece.sh / 2) / piece.sh;
+  }
+
   const ix = Math.max(0, Math.min(piece.w - 1, Math.floor(u * piece.w)));
   const iy = Math.max(0, Math.min(piece.h - 1, Math.floor(v * piece.h)));
   activeGrab = { piece, x: ix, y: iy, start: timerState.elapsed };
@@ -834,6 +862,9 @@ function findPieceAt(mx, my) {
   return null;
 }
 
+// Expose globally for hover detection
+window.__findPieceAt = findPieceAt;
+
 // When releasing a dragged group, try to snap/merge it with neighboring pieces/groups
 function tryMergeGroupsOnRelease(g) {
   if (!g) return;
@@ -845,8 +876,19 @@ function tryMergeGroupsOnRelease(g) {
   while (merged) {
     merged = false;
     for (const p of Array.from(g.members)) {
+      // Skip if piece doesn't have correct orientation (when rotation enabled)
+      if (gameSettings.rotationEnabled && !p.isCorrectOrientation()) {
+        continue;
+      }
+
       for (const np of pieces) {
         if (!np || np.group === g) continue;
+
+        // Skip neighbor if it doesn't have correct orientation (when rotation enabled)
+        if (gameSettings.rotationEnabled && !np.isCorrectOrientation()) {
+          continue;
+        }
+
         // only consider orthogonal neighbors
         const dr = np.r - p.r, dc = np.c - p.c;
         if (Math.abs(dr) + Math.abs(dc) !== 1) continue;
@@ -1051,6 +1093,10 @@ async function startPuzzleFromGallery() {
   // Store image source for preview
   window.__currentPuzzleImageSrc = src.image;
 
+  // Read rotation setting from checkbox
+  const rotCheckbox = document.getElementById('rotationEnabled');
+  if (rotCheckbox) gameSettings.rotationEnabled = rotCheckbox.checked;
+
   // Stop any running intervals
   if (dragTrackInterval) {
     clearInterval(dragTrackInterval);
@@ -1193,6 +1239,13 @@ async function runPuzzleLoad(formData) {
     const pos = randomPositionOutsideGrid(p.sw, p.sh, width, height);
     p.x = pos.x;
     p.y = pos.y;
+    // Apply random rotation if enabled (0, 90, 180, 270 degrees only)
+    if (gameSettings.rotationEnabled) {
+      const rotations = [0, 90, 180, 270];
+      const randomRotation = rotations[Math.floor(Math.random() * rotations.length)];
+      p.rotation = randomRotation;
+      p.rotationTarget = randomRotation;
+    }
     // initialize per-piece snapshot index list
     p.snapshots = [];
     registerPiece(p);
@@ -1248,6 +1301,10 @@ export function wireControls() {
       updateAnalyticsDesc();
       updateConnectionsUI();
       updatePathsUI();
+      // Clear hover piece when entering analytics view
+      if (styleState.analyticsView !== "none") {
+        setHoverPiece(null);
+      }
       redraw();
     });
   }
@@ -1316,12 +1373,14 @@ export function wireControls() {
       showConfirmLeave(() => {
         stopTimer();
         resetTimer();
+        setHoverPiece(null);
         setStartScreenVisible(true);
       });
       return;
     }
     stopTimer();
     resetTimer();
+    setHoverPiece(null);
     setStartScreenVisible(true);
   });
 
@@ -1494,6 +1553,8 @@ export function wireControls() {
         for (const p of listPieces()) p.snapshots = [sidx];
         // reset per-piece solved state and analytics
         for (const p of listPieces()) { p.solved = false; p.solvedAt = null; p.grabs = []; }
+        // clear hover piece
+        setHoverPiece(null);
         // restart timer / start over
         stopTimer(); resetTimer(); startTimer();
         redraw();
@@ -1507,6 +1568,7 @@ export function wireControls() {
       const sidx = addGlobalSnapshot(listPieces());
       for (const p of listPieces()) p.snapshots = [sidx];
       for (const p of listPieces()) { p.solved = false; p.solvedAt = null; p.grabs = []; }
+      setHoverPiece(null);
       stopTimer(); resetTimer(); startTimer();
       redraw();
     }
@@ -1523,14 +1585,46 @@ export function wireControls() {
     window.__pieces = [];
     window.__groups = [];
     resetGlobalSnapshots();
+    setHoverPiece(null);
     stopTimer();
     resetTimer();
     redraw();
   });
 
-  // EgĂ©r-interakciĂłk a globĂˇlis p5 hook-okhoz
+  // Mouse wheel rotation control
+  const canvasHost = document.getElementById('canvasHost');
+  if (canvasHost) {
+    let lastWheelTime = 0;
+    const wheelThrottle = 200; // ms - increased for better responsiveness on 6x6
+
+    canvasHost.addEventListener('wheel', (e) => {
+      if (!gameSettings.rotationEnabled || styleState.analyticsView !== "none") return;
+
+      const now = Date.now();
+      if (now - lastWheelTime < wheelThrottle) {
+        // Too soon after last rotation, ignore this wheel event
+        e.preventDefault();
+        return;
+      }
+
+      const hitPiece = findPieceAt(mouseX, mouseY);
+      if (hitPiece && hitPiece.canRotate()) {
+        e.preventDefault();
+        lastWheelTime = now;
+
+        // Scroll up = rotate counter-clockwise (-90°), scroll down = clockwise (+90°)
+        const direction = e.deltaY > 0 ? 90 : -90;
+        hitPiece.rotate(direction);
+
+        redraw();
+      }
+    }, { passive: false });
+  }
+
+  // Egér-interakciók a globális p5 hook-okhoz
   window.__onMousePressed = () => {
     if (window.__modalOpen) return;
+
     const groups = window.__groups || [];
     const hitPiece = findPieceAt(mouseX, mouseY);
     if (hitPiece) {
@@ -1641,6 +1735,11 @@ export function wireControls() {
     if (document.getElementById('snapToggle').checked) {
       const threshold = (parseInt(document.getElementById('snapPct').value,10) / 100) * 0.5 * (averagePieceDiagonal());
       for (const p of g.members) {
+        // Only snap if correct orientation (when rotation enabled)
+        if (gameSettings.rotationEnabled && !p.isCorrectOrientation()) {
+          continue;
+        }
+
         const tgt = window.__targetTopLeft(p);
         const d = Math.hypot((p.x - tgt.x), (p.y - tgt.y));
         if (d < threshold) {
@@ -1653,6 +1752,7 @@ export function wireControls() {
     for (const p of g.members) if (p.solved) mergeWithSolvedNeighbors(p);
     // try merging with neighboring groups/pieces even if not placed in final target
     tryMergeGroupsOnRelease(g);
+
     // record a global snapshot after the release/move so connections can reference it
     try {
       const snapIdx = addGlobalSnapshot(listPieces());

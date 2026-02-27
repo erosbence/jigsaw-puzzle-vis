@@ -1,5 +1,5 @@
 import { gridRectScaled } from "../ui/layout.js";
-import { styleState, puzzleMeta, listPieces, listGroups, replaceGroups } from "./state.js";
+import { styleState, puzzleMeta, listPieces, listGroups, replaceGroups, gameSettings } from "./state.js";
 
 export function targetTopLeft(piece) {
   const { originX, originY, s } = gridRectScaled(width, height);
@@ -79,7 +79,14 @@ export function groupAlphaHit(g, px, py) {
   const b = g.getBounds();
   if (px < b.x || py < b.y || px > b.x + b.w || py > b.y + b.h) return false;
   const arr = Array.from(g.members);
-  for (let i = arr.length - 1; i >= 0; i--) if (arr[i].hit(px, py)) return true;
+  // Check pieces in reverse order (top to bottom in z-order)
+  // but skip pieces that are clearly outside click area for quick rejection
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const piece = arr[i];
+    // Quick bounding box pre-check before expensive hit test
+    if (px < piece.x || py < piece.y || px >= piece.x + piece.sw || py >= piece.y + piece.sh) continue;
+    if (piece.hit(px, py)) return true;
+  }
   return false;
 }
 
@@ -91,6 +98,11 @@ export function averagePieceDiagonal() {
 }
 
 export function mergeWithSolvedNeighbors(piece) {
+  // Only merge if piece has correct orientation (when rotation is enabled)
+  if (gameSettings.rotationEnabled && !piece.isCorrectOrientation()) {
+    return;
+  }
+
   const pieces = listPieces();
   const dirs = [{dr:0,dc:-1}, {dr:0,dc:1}, {dr:-1,dc:0}, {dr:1,dc:0}];
   for (const d of dirs) {
@@ -106,6 +118,17 @@ export function shufflePieces(newGroupFactory) {
   let groups = [];
   const pieces = listPieces();
   pieces.forEach(p => { p.solved = false; p.solvedAt = null; p.grabs = []; });
+
+  // Apply random rotation if enabled
+  if (gameSettings.rotationEnabled) {
+    const rotations = [0, 90, 180, 270];
+    pieces.forEach(p => {
+      const randomRotation = rotations[Math.floor(Math.random() * rotations.length)];
+      p.rotation = randomRotation;
+      p.rotationTarget = randomRotation;
+    });
+  }
+
   for (const p of pieces) groups.push(newGroupFactory(p));
 
   // Get target area to avoid
