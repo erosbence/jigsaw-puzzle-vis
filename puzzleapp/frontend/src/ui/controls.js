@@ -1,4 +1,4 @@
-﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState, puzzleMeta, bounds, addGlobalSnapshot, globalSnapshots, connectionsState, resetGlobalSnapshots, gameSettings, setHoverPiece } from "../canvas/state.js";
+﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState, puzzleMeta, bounds, addGlobalSnapshot, globalSnapshots, connectionsState, resetGlobalSnapshots, gameSettings, setHoverPiece, viewSettings } from "../canvas/state.js";
 import { drawPiece } from "../canvas/draw.js";
 import { PuzzlePiece } from "../canvas/piece.js";
 import { Group } from "../canvas/group.js";
@@ -6,6 +6,7 @@ import { clampPiece, clampPieceOutsideGrid, averagePieceDiagonal, mergeWithSolve
 import { uploadPuzzle } from "../api/client.js";
 import { initI18n, t, getLang, applyTranslations } from "./i18n.js";
 import { gridRectScaled } from "./layout.js";
+import { zoomState, magnifierState, resetZoom, zoomIn, zoomOut, toggleMagnifier } from "../canvas/zoom.js";
 
 const galleryItems = [
   {
@@ -1506,23 +1507,8 @@ export function wireControls() {
   });
 
   document.getElementById('outlineToggle').addEventListener('change', () => { styleState.outline = document.getElementById('outlineToggle').checked; redraw(); });
-  document.getElementById('shadowToggle').addEventListener('change', () => { styleState.shadow  = document.getElementById('shadowToggle').checked; redraw(); });
 
-  const ow = document.getElementById('outlineWidth');
-  const oi = document.getElementById('shadowIntensity');
   const ps = document.getElementById('pieceScaleRange');
-
-  ow.addEventListener('input', () => {
-    styleState.outlineW = parseInt(ow.value,10);
-    document.getElementById('outlineWidthLbl').textContent = `${styleState.outlineW}px`;
-    redraw();
-  });
-
-  oi.addEventListener('input', () => {
-    styleState.shadowI = parseInt(oi.value,10);
-    document.getElementById('shadowIntensityLbl').textContent = `${styleState.shadowI}%`;
-    redraw();
-  });
 
   ps.addEventListener('input', () => {
     styleState.pieceScale = parseInt(ps.value,10) / 100;
@@ -1530,6 +1516,86 @@ export function wireControls() {
     for (const p of window.__pieces) if (p.solved) p.moveToTarget(); else clampPieceOutsideGrid(p);
     redraw();
   });
+
+  // Zoom controls
+  const zoomToggle = document.getElementById('zoomToggle');
+  const zoomControls = document.getElementById('zoomControls');
+  const zoomInBtn = document.getElementById('zoomIn');
+  const zoomOutBtn = document.getElementById('zoomOut');
+  const zoomResetBtn = document.getElementById('zoomReset');
+
+  if (zoomToggle) {
+    zoomToggle.addEventListener('change', () => {
+      viewSettings.zoomEnabled = zoomToggle.checked;
+      if (zoomControls) {
+        zoomControls.style.display = zoomToggle.checked ? 'block' : 'none';
+      }
+      // Disable magnifier when zoom is enabled
+      if (viewSettings.zoomEnabled && magnifierState.enabled) {
+        magnifierState.enabled = false;
+        viewSettings.magnifierEnabled = false;
+        const magnifierInfo = document.getElementById('magnifierInfo');
+        if (magnifierInfo) magnifierInfo.style.display = 'none';
+      }
+      // Reset zoom when disabled
+      if (!viewSettings.zoomEnabled) {
+        resetZoom();
+      }
+      redraw();
+    });
+  }
+
+  if (zoomInBtn) {
+    zoomInBtn.addEventListener('click', () => {
+      const centerX = (bounds.w || 640) / 2;
+      const centerY = (bounds.h || 640) / 2;
+      zoomIn(centerX, centerY);
+      redraw();
+    });
+  }
+
+  if (zoomOutBtn) {
+    zoomOutBtn.addEventListener('click', () => {
+      const centerX = (bounds.w || 640) / 2;
+      const centerY = (bounds.h || 640) / 2;
+      zoomOut(centerX, centerY);
+      redraw();
+    });
+  }
+
+  if (zoomResetBtn) {
+    zoomResetBtn.addEventListener('click', () => {
+      resetZoom();
+      redraw();
+    });
+  }
+
+  // Magnifier controls
+  const magnifierToggleBtn = document.getElementById('magnifierToggle');
+  const magnifierInfo = document.getElementById('magnifierInfo');
+
+  if (magnifierToggleBtn) {
+    magnifierToggleBtn.addEventListener('click', () => {
+      toggleMagnifier();
+      viewSettings.magnifierEnabled = magnifierState.enabled;
+
+      // Disable zoom when magnifier is enabled
+      if (magnifierState.enabled && viewSettings.zoomEnabled) {
+        viewSettings.zoomEnabled = false;
+        if (zoomToggle) zoomToggle.checked = false;
+        if (zoomControls) zoomControls.style.display = 'none';
+        resetZoom();
+      }
+
+      // Update UI
+      if (magnifierInfo) {
+        magnifierInfo.style.display = magnifierState.enabled ? 'block' : 'none';
+      }
+      magnifierToggleBtn.textContent = magnifierState.enabled ? `🔍 ${t('magnifierToggle')} (${t('active') || 'Aktív'})` : `🔍 ${t('magnifierToggle')}`;
+
+      redraw();
+    });
+  }
 
   document.getElementById('shuffle').addEventListener('click', () => {
     // Stop any running intervals

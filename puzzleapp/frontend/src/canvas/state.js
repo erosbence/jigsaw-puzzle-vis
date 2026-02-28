@@ -14,10 +14,16 @@ export let globalSnapshots = [];
 // Connections view state (which piece selected, which snapshot index for that piece)
 export let connectionsState = { selected: null, snapshotIdx: 0 };
 
-export const styleState = { outline: true, outlineW: 1, shadow: true, shadowI: 35, pieceScale: 0.40, analyticsView: "none" };
+export const styleState = { outline: true, outlineW: 1, shadow: false, shadowI: 35, pieceScale: 0.40, analyticsView: "none" };
 
 // Game settings
 export const gameSettings = { rotationEnabled: false };
+
+// Zoom and magnifier settings (imported from zoom.js but also accessible here)
+export const viewSettings = { 
+  zoomEnabled: false,      // Is zoom mode active
+  magnifierEnabled: false  // Is magnifier tool active
+};
 
 // Hover piece for rotation (mouse wheel control)
 export let hoverPiece = null;

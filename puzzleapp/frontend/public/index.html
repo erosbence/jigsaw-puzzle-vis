@@ -61,6 +61,28 @@
               <div class="row"><button id="previewImage" class="ghost" type="button" data-i18n="previewImage">Előnézet</button></div>
             </div>
 
+          <div class="group">
+              <h3 data-i18n="viewGroup">Nézet eszközök</h3>
+              <div class="row">
+                <label for="zoomToggle" data-i18n="zoomToggle">Zoom engedélyezése</label>
+                <input type="checkbox" id="zoomToggle" />
+              </div>
+              <div id="zoomControls" style="display:none;">
+                <div class="row" style="display:flex; gap:8px; justify-content:center;">
+                  <button id="zoomIn" class="ghost" type="button" data-i18n="zoomIn">🔍+ Nagyítás</button>
+                  <button id="zoomOut" class="ghost" type="button" data-i18n="zoomOut">🔍− Kicsinyítés</button>
+                  <button id="zoomReset" class="ghost" type="button" data-i18n="zoomReset">↺ Visszaállítás</button>
+                </div>
+                <div class="row">
+                  <span class="hint" data-i18n="zoomHint">Görgess a nagyításhoz, húzd a képet a mozgatáshoz</span>
+                </div>
+              </div>
+              <div class="row">
+                <button id="magnifierToggle" class="ghost" type="button" data-i18n="magnifierToggle">🔍 Nagyító eszköz</button>
+              </div>
+              <div id="magnifierInfo" style="display:none;" class="hint" data-i18n="magnifierInfo">Nagyító aktív - mozgasd az egeret</div>
+            </div>
+
             <div class="group">
               <h3 data-i18n="snapGroup">Mozgatás / Snap</h3>
               <p class="hint" data-i18n="snapDesc">Ha be van kapcsolva, a darabok automatikusan illeszkednek az eredeti helyükre, ha elég közel viszed őket.</p>
@@ -75,11 +97,6 @@
               <div class="row"><label for="pieceScaleRange" data-i18n="pieceSize">Darab méret</label><input type="range" id="pieceScaleRange" min="10" max="100" value="40" /></div>
               <div class="row"><span class="hint"><span data-i18n="current">Aktuális:</span> <b id="pieceScaleLbl">40%</b></span></div>
               <div class="row"><label for="outlineToggle" data-i18n="outline">Kontúr</label><input type="checkbox" id="outlineToggle" checked /></div>
-              <div class="row"><label for="outlineWidth" data-i18n="outlineWidth">Kontúr vastagság</label><input type="range" id="outlineWidth" min="1" max="3" value="1" /></div>
-              <div class="row"><span class="hint"><span data-i18n="current">Aktuális:</span> <b id="outlineWidthLbl">1px</b></span></div>
-              <div class="row"><label for="shadowToggle" data-i18n="shadow">3D árnyék</label><input type="checkbox" id="shadowToggle" checked /></div>
-              <div class="row"><label for="shadowIntensity" data-i18n="shadowIntensity">Árnyék intenzitás</label><input type="range" id="shadowIntensity" min="0" max="100" value="35" /></div>
-              <div class="row"><span class="hint"><span data-i18n="current">Aktuális:</span> <b id="shadowIntensityLbl">35%</b></span></div>
             </div>
           </div>
           <div id="analyticsPanel" class="side-panel">
