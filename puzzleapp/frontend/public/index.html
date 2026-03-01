@@ -35,6 +35,8 @@
           </label>
         </div>
         <button id="startGame" class="primary" type="button" disabled data-i18n="startGame">Játék indítása</button>
+        <button id="showStats" class="ghost" type="button" data-i18n="showStats">📊 Statisztikák</button>
+        <button id="showAbout" class="ghost" type="button" data-i18n="showAbout">ℹ️ A kutatásról</button>
         <div id="startLoading" class="hint" style="display:none;" data-i18n="loading">Betöltés…</div>
       </div>
     </div>
@@ -77,10 +79,6 @@
                   <span class="hint" data-i18n="zoomHint">Görgess a nagyításhoz, húzd a képet a mozgatáshoz</span>
                 </div>
               </div>
-              <div class="row">
-                <button id="magnifierToggle" class="ghost" type="button" data-i18n="magnifierToggle">🔍 Nagyító eszköz</button>
-              </div>
-              <div id="magnifierInfo" style="display:none;" class="hint" data-i18n="magnifierInfo">Nagyító aktív - mozgasd az egeret</div>
             </div>
 
             <div class="group">
@@ -193,7 +191,69 @@
     </div>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <!-- About modal -->
+  <div id="aboutModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="aboutTitle" hidden>
+    <div class="modal-panel" role="document" style="max-width: 800px;">
+      <button class="modal-close" id="aboutModalClose" aria-label="Close">&times;</button>
+      <h2 id="aboutTitle" data-i18n="aboutTitle">A Kutatásról</h2>
+      <div class="modal-body about-content">
+        <!-- Research Info (Hungarian) -->
+          <div class="about-section" data-lang-section="hu">
+              <h3>🧩 FragmentVis – Puzzlejátékosok megoldási stratégiáinak adatvizualizáció-alapú elemzése</h3>
+
+              <p style="text-align:justify;">
+                  <strong>Kutatás célja:</strong> A FragmentVis egy interaktív vizualizációs rendszer, amely kirakós játékok megoldási stratégiáinak elemzését teszi lehetővé. A rendszer valós időben rögzíti és vizualizálja a játékosok interakcióit, így mélyebb betekintést nyújt a térbeli problémamegoldás kognitív folyamataiba.
+                  kutatás célja olyan információvizualizációs eszközök vizsgálata és értékelése, amelyek a puzzlejátékosok döntési folyamatai mögött húzódó kognitív mechanizmusok feltárását és vizuális reprezentációját teszik lehetővé. A kutatás fő motivációja annak pontosabb megértése, hogy ezen vizuális megjelenítések miként támogathatják a játékosokat saját megoldási módszerük elemzésében, teljesítményük kiértékelésében, valamint alkalmazott stratégiájuk fejlesztési lehetőségeinek beazonosításában.
+              </p>
+
+              <h4>📊 Analitikai Funkciók:</h4>
+              <ul>
+                  <li><strong>Időlenyomat (Heatmap):</strong> A darabok megoldási sorrendjének vizualizációja időbeli színkódolással</li>
+                  <li><strong>Fogási pontok:</strong> A felhasználó által megfogott pozíciók sűrűségtérképe</li>
+                  <li><strong>Kapcsolatok nézet:</strong> A darabok közötti térbeli relációk és illesztési kísérletek</li>
+                  <li><strong>Mozgási útvonalak:</strong> Egyedi darabok teljes mozgástörténete időbeli színátmenettel</li>
+                  <li><strong>Teljesítmény metrikák:</strong> Hatékonyság, sebesség, pontosság statisztikai elemzése</li>
+              </ul>
+
+              <p>
+
+                  <strong>Technológiák:</strong> p5.js, Flask (Python), Canvas API, LocalStorage API<br>
+                  <strong>Licenc:</strong> Kutatási célú szoftver<br>
+                  <strong>Verzió:</strong> 1.0.0 (2026)
+              </p>
+          </div>
+
+        <!-- Research Info (English) -->
+          <div class="about-section" data-lang-section="en">
+              <h3>🧩 FragmentVis – Data Visualization-Based Analysis of Puzzle Players’ Solution Strategies</h3>
+
+              <p style="text-align:justify;">
+                  <strong>Research Objective:</strong> FragmentVis is an interactive visualization system designed to analyze solution strategies in jigsaw puzzle games. The system records and visualizes player interactions in real time, providing deeper insight into the cognitive processes underlying spatial problem-solving.
+                  The research aims to investigate and evaluate information visualization tools that enable the exploration and visual representation of the cognitive mechanisms underlying puzzle players’ decision-making processes. The primary motivation of the study is to achieve a more precise understanding of how such visual representations can support players in analyzing their own solution methods, evaluating their performance, and identifying potential improvements in their applied strategies.
+              </p>
+
+              <h4>📊 Analytical Features:</h4>
+              <ul>
+                  <li><strong>Temporal Heatmap:</strong> Visualization of piece placement order using time-based color coding</li>
+                  <li><strong>Grasp Points:</strong> Density map of user interaction points where pieces were picked up</li>
+                  <li><strong>Connections View:</strong> Spatial relationships and fitting attempts between puzzle pieces</li>
+                  <li><strong>Movement Trajectories:</strong> Complete movement history of individual pieces with temporal color gradients</li>
+                  <li><strong>Performance Metrics:</strong> Statistical analysis of efficiency, speed, and accuracy</li>
+              </ul>
+
+              <p>
+                  <strong>Technologies:</strong> p5.js, Flask (Python), Canvas API, LocalStorage API<br>
+                  <strong>License:</strong> Research-use software<br>
+                  <strong>Version:</strong> 1.0.0 (2026)
+              </p>
+
+          </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- p5.js library (local copy for better security and offline support) -->
+  <script src="/public/libs/p5.min.js"></script>
   <script type="module" src="../src/main.js"></script>
 </body>
 </html>

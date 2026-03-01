@@ -19,10 +19,9 @@ export const styleState = { outline: true, outlineW: 1, shadow: false, shadowI: 
 // Game settings
 export const gameSettings = { rotationEnabled: false };
 
-// Zoom and magnifier settings (imported from zoom.js but also accessible here)
+// Zoom settings
 export const viewSettings = { 
-  zoomEnabled: false,      // Is zoom mode active
-  magnifierEnabled: false  // Is magnifier tool active
+  zoomEnabled: false      // Is zoom mode active
 };
 
 // Hover piece for rotation (mouse wheel control)

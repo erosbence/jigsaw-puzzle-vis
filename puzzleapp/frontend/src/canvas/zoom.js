@@ -14,15 +14,6 @@ export const zoomState = {
   panStartOffsetY: 0  // Pan start offset Y
 };
 
-// Magnifier state
-export const magnifierState = {
-  enabled: false,    // Is magnifier tool enabled
-  x: 0,              // Magnifier center X
-  y: 0,              // Magnifier center Y
-  radius: 100,       // Magnifier circle radius
-  magnification: 2.5 // Magnification level (2.5x)
-};
-
 // Apply zoom transformation to canvas
 export function applyZoomTransform() {
   if (!window.translate || !window.scale) return;
@@ -113,99 +104,6 @@ export function updatePan(mouseX, mouseY) {
 // Stop panning
 export function stopPan() {
   zoomState.isPanning = false;
-}
-
-// Toggle magnifier
-export function toggleMagnifier() {
-  magnifierState.enabled = !magnifierState.enabled;
-}
-
-// Update magnifier position
-export function updateMagnifierPosition(mouseX, mouseY) {
-  magnifierState.x = mouseX;
-  magnifierState.y = mouseY;
-}
-
-// Draw magnifier overlay
-export function drawMagnifier(pg) {
-  if (!magnifierState.enabled || !pg) return;
-  
-  const { x, y, radius, magnification } = magnifierState;
-  
-  // Save current drawing state
-  window.push();
-  
-  // Reset transformations for overlay
-  window.resetMatrix();
-  
-  // Create circular clipping mask for magnifier
-  window.drawingContext.save();
-  
-  // Draw magnifier circle outline
-  window.noFill();
-  window.stroke(80, 80, 80);
-  window.strokeWeight(3);
-  window.circle(x, y, radius * 2);
-  
-  // Create circular clip path
-  window.drawingContext.beginPath();
-  window.drawingContext.arc(x, y, radius, 0, Math.PI * 2);
-  window.drawingContext.clip();
-  
-  // Draw magnified content
-  const sourceX = x / zoomState.scale - zoomState.offsetX / zoomState.scale;
-  const sourceY = y / zoomState.scale - zoomState.offsetY / zoomState.scale;
-  const sourceSize = (radius * 2) / magnification;
-  
-  // Draw the magnified portion
-  window.image(
-    pg,
-    x - radius, y - radius, // destination position
-    radius * 2, radius * 2,  // destination size
-    sourceX - sourceSize / 2, sourceY - sourceSize / 2, // source position
-    sourceSize, sourceSize   // source size
-  );
-  
-  window.drawingContext.restore();
-  
-  // Draw magnifier handle (decorative)
-  window.push();
-  window.stroke(80, 80, 80);
-  window.strokeWeight(3);
-  window.noFill();
-  const handleAngle = Math.PI / 4; // 45 degrees
-  const handleLength = 30;
-  const handleStartX = x + Math.cos(handleAngle) * radius;
-  const handleStartY = y + Math.sin(handleAngle) * radius;
-  const handleEndX = handleStartX + Math.cos(handleAngle) * handleLength;
-  const handleEndY = handleStartY + Math.sin(handleAngle) * handleLength;
-  window.line(handleStartX, handleStartY, handleEndX, handleEndY);
-  
-  // Draw handle end circle
-  window.fill(80, 80, 80);
-  window.noStroke();
-  window.circle(handleEndX, handleEndY, 8);
-  window.pop();
-  
-  // Draw crosshair in center
-  window.push();
-  window.stroke(255, 100, 100, 150);
-  window.strokeWeight(1);
-  const crossSize = 10;
-  window.line(x - crossSize, y, x + crossSize, y);
-  window.line(x, y - crossSize, x, y + crossSize);
-  window.pop();
-  
-  // Draw magnification label
-  window.push();
-  window.fill(80, 80, 80);
-  window.noStroke();
-  window.textAlign(window.CENTER, window.CENTER);
-  window.textSize(12);
-  window.text(`${magnification}x`, x, y + radius + 18);
-  window.pop();
-  
-  window.pop();
 }
 
 // Convert screen coordinates to world coordinates (considering zoom)

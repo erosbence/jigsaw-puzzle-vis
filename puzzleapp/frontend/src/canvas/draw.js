@@ -318,7 +318,7 @@ export function drawHeatmap(width, height, rows, cols, pieces, elapsedMs) {
 
   const solvedTimes = (pieces || [])
     .map(p => p.solvedAt)
-    .filter(v => typeof v === "number");
+    .filter(v => typeof v === "number" && !isNaN(v) && isFinite(v) && v >= 0);
   const hasSolved = solvedTimes.length > 0;
   let minTime = 0;
   let maxSolved = 0;

@@ -6,7 +6,9 @@ import { clampPiece, clampPieceOutsideGrid, averagePieceDiagonal, mergeWithSolve
 import { uploadPuzzle } from "../api/client.js";
 import { initI18n, t, getLang, applyTranslations } from "./i18n.js";
 import { gridRectScaled } from "./layout.js";
-import { zoomState, magnifierState, resetZoom, zoomIn, zoomOut, toggleMagnifier, screenToWorld } from "../canvas/zoom.js";
+import { zoomState, resetZoom, zoomIn, zoomOut, screenToWorld } from "../canvas/zoom.js";
+import { initSession, recordGameStart, recordGrab, recordGameComplete, getCurrentGame } from "../analytics/sessionStats.js";
+import { initStatsModal, showStatsModal } from "./statsModal.js";
 
 const galleryItems = [
   {
@@ -37,6 +39,7 @@ let timerStart = 0;
 let timerElapsed = 0;
 let activeGrab = null;
 let dragTrackInterval = null; // Interval for tracking drag positions
+let currentGameId = null; // Session tracking: current game ID
 // When a modal is open we block interactions with the canvas
 window.__modalOpen = false;
 
@@ -90,7 +93,7 @@ function buildHeatmapSvg(rows, cols, pieces, elapsedMs) {
 
   const solvedTimes = (pieces || [])
     .map(p => p.solvedAt)
-    .filter(v => typeof v === "number");
+    .filter(v => typeof v === "number" && !isNaN(v) && isFinite(v) && v >= 0);
   const hasSolved = solvedTimes.length > 0;
   let minTime = 0;
   let maxSolved = 0;
@@ -840,6 +843,11 @@ function startGrabAt(piece, mx, my) {
   const ix = Math.max(0, Math.min(piece.w - 1, Math.floor(u * piece.w)));
   const iy = Math.max(0, Math.min(piece.h - 1, Math.floor(v * piece.h)));
   activeGrab = { piece, x: ix, y: iy, start: timerState.elapsed };
+
+  // Track grab for statistics
+  if (currentGameId) {
+    recordGrab(currentGameId);
+  }
 }
 
 function finishGrab() {
@@ -1117,10 +1125,45 @@ async function startPuzzleFromGallery() {
   updateConnectionsUI();
   updatePathsUI();
 
+  // Update zoom UI availability (enable zoom controls since analytics = "none")
+  const zoomToggleEl = document.getElementById('zoomToggle');
+  const zoomInBtnEl = document.getElementById('zoomIn');
+  const zoomOutBtnEl = document.getElementById('zoomOut');
+  const zoomResetBtnEl = document.getElementById('zoomReset');
+  if (zoomToggleEl) {
+    zoomToggleEl.disabled = false;
+    zoomToggleEl.title = "";
+  }
+  if (zoomInBtnEl) {
+    zoomInBtnEl.disabled = false;
+    zoomInBtnEl.title = "";
+  }
+  if (zoomOutBtnEl) {
+    zoomOutBtnEl.disabled = false;
+    zoomOutBtnEl.title = "";
+  }
+  if (zoomResetBtnEl) {
+    zoomResetBtnEl.disabled = false;
+    zoomResetBtnEl.title = "";
+  }
+
   redraw();
   resetTimer();
   startTimer();
   resetScene();
+
+  // Reset zoom and view settings for new game
+  resetZoom();
+  viewSettings.zoomEnabled = false;
+
+  // Sync UI checkboxes
+  const zoomCheckbox = document.getElementById('zoomToggle');
+  if (zoomCheckbox) zoomCheckbox.checked = false;
+
+  // Hide zoom controls since zoom is disabled
+  const zoomControlsDiv = document.getElementById('zoomControls');
+  if (zoomControlsDiv) zoomControlsDiv.style.display = 'none';
+
   window.__pieces = [];
   window.__groups = [];
   redraw();
@@ -1130,6 +1173,11 @@ async function startPuzzleFromGallery() {
   try {
     const formData = await buildFormDataFromUrls(src.image, src.mask);
     await runPuzzleLoad(formData);
+
+    // Track game start for statistics
+    const pieces = listPieces();
+    currentGameId = recordGameStart(selectedSize, pieces.length, gameSettings.rotationEnabled);
+
     setStartScreenVisible(false);
   } catch (err) {
     stopTimer();
@@ -1266,6 +1314,8 @@ async function runPuzzleLoad(formData) {
 
 export function wireControls() {
   initI18n();
+  initSession(); // Initialize session tracking
+  initStatsModal(); // Initialize statistics modal
   renderGallery();
   renderSizeOptions();
   updateStartButton();
@@ -1302,6 +1352,7 @@ export function wireControls() {
       updateAnalyticsDesc();
       updateConnectionsUI();
       updatePathsUI();
+      updateZoomAvailability();  // Update zoom UI based on analytics state
       // Clear hover piece when entering analytics view
       if (styleState.analyticsView !== "none") {
         setHoverPiece(null);
@@ -1375,6 +1426,19 @@ export function wireControls() {
         stopTimer();
         resetTimer();
         setHoverPiece(null);
+
+        // Reset zoom and view settings when returning to gallery
+        resetZoom();
+        viewSettings.zoomEnabled = false;
+
+        // Sync UI checkboxes
+        const zoomCheckbox = document.getElementById('zoomToggle');
+        if (zoomCheckbox) zoomCheckbox.checked = false;
+
+        // Hide zoom controls since zoom is disabled
+        const zoomControlsDiv = document.getElementById('zoomControls');
+        if (zoomControlsDiv) zoomControlsDiv.style.display = 'none';
+
         setStartScreenVisible(true);
       });
       return;
@@ -1382,6 +1446,19 @@ export function wireControls() {
     stopTimer();
     resetTimer();
     setHoverPiece(null);
+
+    // Reset zoom and view settings when returning to gallery
+    resetZoom();
+    viewSettings.zoomEnabled = false;
+
+    // Sync UI checkboxes
+    const zoomCheckbox = document.getElementById('zoomToggle');
+    if (zoomCheckbox) zoomCheckbox.checked = false;
+
+    // Hide zoom controls since zoom is disabled
+    const zoomControlsDiv = document.getElementById('zoomControls');
+    if (zoomControlsDiv) zoomControlsDiv.style.display = 'none';
+
     setStartScreenVisible(true);
   });
 
@@ -1476,9 +1553,55 @@ export function wireControls() {
   });
   document.getElementById('startGame').addEventListener('click', startPuzzleFromGallery);
 
+  // Statistics button
+  const showStatsBtn = document.getElementById('showStats');
+  if (showStatsBtn) {
+    showStatsBtn.addEventListener('click', () => {
+      showStatsModal();
+    });
+  }
+
+  // About button
+  const showAboutBtn = document.getElementById('showAbout');
+  const aboutModal = document.getElementById('aboutModal');
+  const aboutModalClose = document.getElementById('aboutModalClose');
+
+  if (showAboutBtn && aboutModal) {
+    showAboutBtn.addEventListener('click', () => {
+      aboutModal.removeAttribute('hidden');
+      updateAboutLanguage();
+    });
+  }
+
+  if (aboutModalClose && aboutModal) {
+    aboutModalClose.addEventListener('click', () => {
+      aboutModal.setAttribute('hidden', '');
+    });
+  }
+
+  // Close about modal on overlay click
+  if (aboutModal) {
+    aboutModal.addEventListener('click', (e) => {
+      if (e.target === aboutModal) {
+        aboutModal.setAttribute('hidden', '');
+      }
+    });
+  }
+
+  // Helper function to update about modal language
+  function updateAboutLanguage() {
+    const currentLang = getLang();
+    const sections = aboutModal.querySelectorAll('[data-lang-section]');
+    sections.forEach(section => {
+      const sectionLang = section.getAttribute('data-lang-section');
+      section.style.display = sectionLang === currentLang ? 'block' : 'none';
+    });
+  }
+
   document.querySelectorAll('.lang-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       applyTranslations();
+      updateAboutLanguage(); // Update about modal language
       window.__grabTooltipLabels = { time: t("grabTimeLabel"), duration: t("grabDurationLabel") };
       const heatmapExport = document.getElementById('heatmapExport');
       if (heatmapExport) {
@@ -1498,14 +1621,6 @@ export function wireControls() {
       renderGallery();
       renderSizeOptions();
       updateStartButton();
-
-      // Update magnifier button text (maintains active state in current language)
-      const magnifierToggleBtn = document.getElementById('magnifierToggle');
-      if (magnifierToggleBtn) {
-        magnifierToggleBtn.textContent = magnifierState.enabled 
-          ? `🔍 ${t('magnifierToggle')} (${t('active') || 'Aktív'})` 
-          : `🔍 ${t('magnifierToggle')}`;
-      }
     });
   });
 
@@ -1531,6 +1646,31 @@ export function wireControls() {
   const zoomInBtn = document.getElementById('zoomIn');
   const zoomOutBtn = document.getElementById('zoomOut');
   const zoomResetBtn = document.getElementById('zoomReset');
+
+  // Helper: Update zoom controls availability based on analytics view
+  function updateZoomAvailability() {
+    const analyticsActive = styleState.analyticsView !== "none";
+
+    if (zoomToggle) {
+      zoomToggle.disabled = analyticsActive;
+      zoomToggle.title = analyticsActive ? t("zoomDisabledInAnalytics") : "";
+    }
+
+    if (zoomInBtn) {
+      zoomInBtn.disabled = analyticsActive;
+      zoomInBtn.title = analyticsActive ? t("zoomDisabledInAnalytics") : "";
+    }
+
+    if (zoomOutBtn) {
+      zoomOutBtn.disabled = analyticsActive;
+      zoomOutBtn.title = analyticsActive ? t("zoomDisabledInAnalytics") : "";
+    }
+
+    if (zoomResetBtn) {
+      zoomResetBtn.disabled = analyticsActive;
+      zoomResetBtn.title = analyticsActive ? t("zoomDisabledInAnalytics") : "";
+    }
+  }
 
   if (zoomToggle) {
     zoomToggle.addEventListener('change', () => {
@@ -1578,42 +1718,8 @@ export function wireControls() {
     });
   }
 
-  // Magnifier controls
-  const magnifierToggleBtn = document.getElementById('magnifierToggle');
-  const magnifierInfo = document.getElementById('magnifierInfo');
-
-  if (magnifierToggleBtn) {
-    magnifierToggleBtn.addEventListener('click', () => {
-      // Cancel any pending magnifier animation frame before toggling
-      if (!magnifierState.enabled && window.__magnifierAnimationFrameId) {
-        cancelAnimationFrame(window.__magnifierAnimationFrameId);
-        window.__magnifierAnimationFrameId = null;
-        window.__magnifierNeedsRedraw = false;
-      }
-
-      toggleMagnifier();
-      viewSettings.magnifierEnabled = magnifierState.enabled;
-
-      // Disable zoom when magnifier is enabled
-      if (magnifierState.enabled && viewSettings.zoomEnabled) {
-        viewSettings.zoomEnabled = false;
-        if (zoomToggle) zoomToggle.checked = false;
-        if (zoomControls) zoomControls.style.display = 'none';
-        resetZoom();
-      }
-
-      // Update UI
-      if (magnifierInfo) {
-        magnifierInfo.style.display = magnifierState.enabled ? 'block' : 'none';
-      }
-      // Update button text with current language
-      magnifierToggleBtn.textContent = magnifierState.enabled 
-        ? `🔍 ${t('magnifierToggle')} (${t('active') || 'Aktív'})` 
-        : `🔍 ${t('magnifierToggle')}`;
-
-      redraw();
-    });
-  }
+  // Initialize zoom availability state after all elements are defined
+  updateZoomAvailability();
 
   document.getElementById('shuffle').addEventListener('click', () => {
     // Stop any running intervals
@@ -1690,7 +1796,7 @@ export function wireControls() {
     // Convert screen to world coordinates if zoom is enabled
     let mx = mouseX;
     let my = mouseY;
-    if (viewSettings.zoomEnabled && !magnifierState.enabled) {
+    if (viewSettings.zoomEnabled) {
       const worldCoords = screenToWorld(mouseX, mouseY);
       mx = worldCoords.x;
       my = worldCoords.y;
@@ -1787,7 +1893,7 @@ export function wireControls() {
     // Convert screen to world coordinates if zoom is enabled
     let mx = mouseX;
     let my = mouseY;
-    if (viewSettings.zoomEnabled && !magnifierState.enabled) {
+    if (viewSettings.zoomEnabled) {
       const worldCoords = screenToWorld(mouseX, mouseY);
       mx = worldCoords.x;
       my = worldCoords.y;
@@ -1845,7 +1951,17 @@ export function wireControls() {
         p.snapshots.push(snapIdx);
       }
     } catch (_) {}
-    if (isPuzzleSolved()) stopTimer();
+
+    // Check if puzzle is completed
+    if (isPuzzleSolved()) {
+      stopTimer();
+      // Track game completion for statistics
+      if (currentGameId) {
+        recordGameComplete(currentGameId);
+        currentGameId = null; // Reset for next game
+      }
+    }
+
     window.__dragging = null; redraw();
   };
 

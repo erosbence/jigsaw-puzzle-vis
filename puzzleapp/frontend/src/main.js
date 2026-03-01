@@ -5,9 +5,8 @@ import { clampPiece, groupAlphaHit, targetTopLeft, shufflePieces } from "./canva
 import { Group } from "./canvas/group.js";
 import { gridRectScaled } from "./ui/layout.js";
 import { 
-  zoomState, magnifierState, applyZoomTransform, resetZoom, 
-  handleMouseWheel, startPan, updatePan, stopPan, 
-  updateMagnifierPosition, drawMagnifier, screenToWorld
+  zoomState, applyZoomTransform, resetZoom, 
+  handleMouseWheel, startPan, updatePan, stopPan, screenToWorld
 } from "./canvas/zoom.js";
 
 function canvasHostSize() {
@@ -35,13 +34,7 @@ window.setup = function () {
   const wheelThrottle = 200; // ms
 
   canvas.elt.addEventListener('wheel', (e) => {
-    // Priority 1: Block all wheel events when magnifier is active
-    if (magnifierState.enabled) {
-      e.preventDefault();
-      return;
-    }
-
-    // Priority 2: Zoom (if enabled and not in analytics view)
+    // Priority 1: Zoom (if enabled and not in analytics view)
     if (viewSettings.zoomEnabled && styleState.analyticsView === "none") {
       e.preventDefault();
       handleMouseWheel(e, w, h);
@@ -49,7 +42,7 @@ window.setup = function () {
       return;
     }
 
-    // Priority 3: Rotation (if enabled, not in analytics view, and piece under mouse)
+    // Priority 2: Rotation (if enabled, not in analytics view, and piece under mouse)
     if (gameSettings.rotationEnabled && styleState.analyticsView === "none") {
       const now = Date.now();
       if (now - lastWheelTime < wheelThrottle) {
@@ -193,8 +186,8 @@ window.draw = function () {
   // Draw main canvas
   push();
 
-  // Apply zoom transformation if enabled and magnifier is off
-  if (viewSettings.zoomEnabled && !magnifierState.enabled) {
+  // Apply zoom transformation if enabled and not in analytics view
+  if (viewSettings.zoomEnabled && styleState.analyticsView === "none") {
     translate(zoomState.offsetX, zoomState.offsetY);
     scale(zoomState.scale);
   }
@@ -230,21 +223,15 @@ window.draw = function () {
 
   pop();
 
-  // Draw magnifier overlay (always on top, no zoom transform)
-  if (magnifierState.enabled) {
-    drawToBuffer(pg);
-    drawMagnifier(pg);
-  }
-
   // Continue animation if needed
-  if (needsRedraw || magnifierState.enabled) {
+  if (needsRedraw) {
     setTimeout(() => redraw(), 16); // ~60fps
   }
 };
 
 window.mousePressed = () => {
-  // Handle pan start if zoom is enabled (and not magnifier) and not dragging a piece
-  if (viewSettings.zoomEnabled && !magnifierState.enabled) {
+  // Handle pan start if zoom is enabled and not dragging a piece
+  if (viewSettings.zoomEnabled) {
     // Convert screen coordinates to world coordinates for accurate hit detection
     const worldCoords = screenToWorld(mouseX, mouseY);
     const hitPiece = window.__findPieceAt ? window.__findPieceAt(worldCoords.x, worldCoords.y) : null;
@@ -262,7 +249,7 @@ window.mousePressed = () => {
 window.mouseDragged = () => {
   // Handle panning if zoom is enabled and panning is active
   // Note: isPanning flag ensures we don't interfere with piece dragging
-  if (zoomState.isPanning && viewSettings.zoomEnabled && !magnifierState.enabled) {
+  if (zoomState.isPanning && viewSettings.zoomEnabled) {
     updatePan(mouseX, mouseY);
     redraw();
     return;
@@ -279,33 +266,13 @@ window.mouseReleased = () => {
   }
   window.__onMouseReleased && window.__onMouseReleased();
 };
+
 // Throttle mouseMoved to reduce CPU usage
 let lastMouseMoveTime = 0;
 const MOUSE_MOVE_THROTTLE = 100; // ms - increased for better 6x6 performance
 
-// Magnifier redraw throttling with requestAnimationFrame
-// Using window scope so controls.js can cancel pending frames on toggle
-window.__magnifierAnimationFrameId = null;
-window.__magnifierNeedsRedraw = false;
-
 window.mouseMoved = () => {
   const now = Date.now();
-
-  // Update magnifier position if enabled
-  if (magnifierState.enabled) {
-    updateMagnifierPosition(mouseX, mouseY);
-
-    // Request redraw using requestAnimationFrame for smooth 60 FPS
-    // Only schedule one frame at a time to prevent excessive redraws
-    if (!window.__magnifierNeedsRedraw) {
-      window.__magnifierNeedsRedraw = true;
-      window.__magnifierAnimationFrameId = requestAnimationFrame(() => {
-        redraw();
-        window.__magnifierNeedsRedraw = false;
-      });
-    }
-    return;
-  }
 
   if (now - lastMouseMoveTime < MOUSE_MOVE_THROTTLE) return;
   lastMouseMoveTime = now;
