@@ -29,12 +29,49 @@ window.setup = function () {
   window.__pieces = []; window.__groups = [];
   window.__dragging = null; window.__dragDX = 0; window.__dragDY = 0;
 
-  // Add mouse wheel listener for zoom
+  // Centralized wheel event handler with priority order
+  // Priority: Magnifier > Zoom > Rotation > Default scroll
+  let lastWheelTime = 0;
+  const wheelThrottle = 200; // ms
+
   canvas.elt.addEventListener('wheel', (e) => {
-    if (viewSettings.zoomEnabled && !magnifierState.enabled) {
+    // Priority 1: Block all wheel events when magnifier is active
+    if (magnifierState.enabled) {
+      e.preventDefault();
+      return;
+    }
+
+    // Priority 2: Zoom (if enabled and not in analytics view)
+    if (viewSettings.zoomEnabled && styleState.analyticsView === "none") {
+      e.preventDefault();
       handleMouseWheel(e, w, h);
       redraw();
+      return;
     }
+
+    // Priority 3: Rotation (if enabled, not in analytics view, and piece under mouse)
+    if (gameSettings.rotationEnabled && styleState.analyticsView === "none") {
+      const now = Date.now();
+      if (now - lastWheelTime < wheelThrottle) {
+        e.preventDefault();
+        return;
+      }
+
+      const hitPiece = window.__findPieceAt ? window.__findPieceAt(mouseX, mouseY) : null;
+      if (hitPiece && hitPiece.canRotate()) {
+        e.preventDefault();
+        lastWheelTime = now;
+
+        // Scroll up = rotate counter-clockwise (-90°), scroll down = clockwise (+90°)
+        const direction = e.deltaY > 0 ? 90 : -90;
+        hitPiece.rotate(direction);
+
+        redraw();
+        return;
+      }
+    }
+
+    // Priority 4: Default browser scroll (no preventDefault, let it through)
   }, { passive: false });
 
   wireControls();
@@ -54,9 +91,21 @@ window.setup = function () {
 
 window.draw = function () {
   // Create offscreen graphics buffer for magnifier
-  if (!window.__offscreenBuffer) {
+  // Fix: Recreate buffer if size changed (prevent memory leak)
+  const needsBufferRecreate = !window.__offscreenBuffer || 
+                               window.__offscreenBuffer.width !== width || 
+                               window.__offscreenBuffer.height !== height;
+
+  if (needsBufferRecreate) {
+    // Cleanup old buffer to prevent memory leak
+    if (window.__offscreenBuffer) {
+      window.__offscreenBuffer.remove();
+      window.__offscreenBuffer = null;
+    }
+    // Create new buffer with current canvas size
     window.__offscreenBuffer = createGraphics(width, height);
   }
+
   const pg = window.__offscreenBuffer;
   pg.clear();
 
@@ -196,18 +245,23 @@ window.draw = function () {
 window.mousePressed = () => {
   // Handle pan start if zoom is enabled (and not magnifier) and not dragging a piece
   if (viewSettings.zoomEnabled && !magnifierState.enabled) {
-    // Check if clicking on a piece - if not, start panning
-    const hitPiece = window.__findPieceAt ? window.__findPieceAt(mouseX, mouseY) : null;
+    // Convert screen coordinates to world coordinates for accurate hit detection
+    const worldCoords = screenToWorld(mouseX, mouseY);
+    const hitPiece = window.__findPieceAt ? window.__findPieceAt(worldCoords.x, worldCoords.y) : null;
+
     if (!hitPiece) {
+      // No piece under cursor - start panning
       startPan(mouseX, mouseY);
       return;
     }
+    // Piece found - fall through to let piece drag handle it
   }
   window.__onMousePressed && window.__onMousePressed();
 };
 
 window.mouseDragged = () => {
   // Handle panning if zoom is enabled and panning is active
+  // Note: isPanning flag ensures we don't interfere with piece dragging
   if (zoomState.isPanning && viewSettings.zoomEnabled && !magnifierState.enabled) {
     updatePan(mouseX, mouseY);
     redraw();
@@ -218,6 +272,7 @@ window.mouseDragged = () => {
 
 window.mouseReleased = () => {
   // Stop panning if zoom is enabled
+  // Note: Only stop pan if we were actually panning (not piece dragging)
   if (zoomState.isPanning) {
     stopPan();
     return;
@@ -228,13 +283,27 @@ window.mouseReleased = () => {
 let lastMouseMoveTime = 0;
 const MOUSE_MOVE_THROTTLE = 100; // ms - increased for better 6x6 performance
 
+// Magnifier redraw throttling with requestAnimationFrame
+// Using window scope so controls.js can cancel pending frames on toggle
+window.__magnifierAnimationFrameId = null;
+window.__magnifierNeedsRedraw = false;
+
 window.mouseMoved = () => {
   const now = Date.now();
 
   // Update magnifier position if enabled
   if (magnifierState.enabled) {
     updateMagnifierPosition(mouseX, mouseY);
-    redraw();
+
+    // Request redraw using requestAnimationFrame for smooth 60 FPS
+    // Only schedule one frame at a time to prevent excessive redraws
+    if (!window.__magnifierNeedsRedraw) {
+      window.__magnifierNeedsRedraw = true;
+      window.__magnifierAnimationFrameId = requestAnimationFrame(() => {
+        redraw();
+        window.__magnifierNeedsRedraw = false;
+      });
+    }
     return;
   }
 

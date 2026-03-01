@@ -6,7 +6,7 @@ import { clampPiece, clampPieceOutsideGrid, averagePieceDiagonal, mergeWithSolve
 import { uploadPuzzle } from "../api/client.js";
 import { initI18n, t, getLang, applyTranslations } from "./i18n.js";
 import { gridRectScaled } from "./layout.js";
-import { zoomState, magnifierState, resetZoom, zoomIn, zoomOut, toggleMagnifier } from "../canvas/zoom.js";
+import { zoomState, magnifierState, resetZoom, zoomIn, zoomOut, toggleMagnifier, screenToWorld } from "../canvas/zoom.js";
 
 const galleryItems = [
   {
@@ -1498,6 +1498,14 @@ export function wireControls() {
       renderGallery();
       renderSizeOptions();
       updateStartButton();
+
+      // Update magnifier button text (maintains active state in current language)
+      const magnifierToggleBtn = document.getElementById('magnifierToggle');
+      if (magnifierToggleBtn) {
+        magnifierToggleBtn.textContent = magnifierState.enabled 
+          ? `🔍 ${t('magnifierToggle')} (${t('active') || 'Aktív'})` 
+          : `🔍 ${t('magnifierToggle')}`;
+      }
     });
   });
 
@@ -1576,6 +1584,13 @@ export function wireControls() {
 
   if (magnifierToggleBtn) {
     magnifierToggleBtn.addEventListener('click', () => {
+      // Cancel any pending magnifier animation frame before toggling
+      if (!magnifierState.enabled && window.__magnifierAnimationFrameId) {
+        cancelAnimationFrame(window.__magnifierAnimationFrameId);
+        window.__magnifierAnimationFrameId = null;
+        window.__magnifierNeedsRedraw = false;
+      }
+
       toggleMagnifier();
       viewSettings.magnifierEnabled = magnifierState.enabled;
 
@@ -1591,7 +1606,10 @@ export function wireControls() {
       if (magnifierInfo) {
         magnifierInfo.style.display = magnifierState.enabled ? 'block' : 'none';
       }
-      magnifierToggleBtn.textContent = magnifierState.enabled ? `🔍 ${t('magnifierToggle')} (${t('active') || 'Aktív'})` : `🔍 ${t('magnifierToggle')}`;
+      // Update button text with current language
+      magnifierToggleBtn.textContent = magnifierState.enabled 
+        ? `🔍 ${t('magnifierToggle')} (${t('active') || 'Aktív'})` 
+        : `🔍 ${t('magnifierToggle')}`;
 
       redraw();
     });
@@ -1657,42 +1675,28 @@ export function wireControls() {
     redraw();
   });
 
-  // Mouse wheel rotation control
-  const canvasHost = document.getElementById('canvasHost');
-  if (canvasHost) {
-    let lastWheelTime = 0;
-    const wheelThrottle = 200; // ms - increased for better responsiveness on 6x6
-
-    canvasHost.addEventListener('wheel', (e) => {
-      if (!gameSettings.rotationEnabled || styleState.analyticsView !== "none") return;
-
-      const now = Date.now();
-      if (now - lastWheelTime < wheelThrottle) {
-        // Too soon after last rotation, ignore this wheel event
-        e.preventDefault();
-        return;
-      }
-
-      const hitPiece = findPieceAt(mouseX, mouseY);
-      if (hitPiece && hitPiece.canRotate()) {
-        e.preventDefault();
-        lastWheelTime = now;
-
-        // Scroll up = rotate counter-clockwise (-90°), scroll down = clockwise (+90°)
-        const direction = e.deltaY > 0 ? 90 : -90;
-        hitPiece.rotate(direction);
-
-        redraw();
-      }
-    }, { passive: false });
-  }
+  // Note: Mouse wheel handling is now centralized in main.js with priority order:
+  // Priority 1: Magnifier (blocks all)
+  // Priority 2: Zoom (if enabled)
+  // Priority 3: Rotation (if enabled and piece under mouse)
+  // Priority 4: Default browser scroll
 
   // Egér-interakciók a globális p5 hook-okhoz
   window.__onMousePressed = () => {
     if (window.__modalOpen) return;
 
     const groups = window.__groups || [];
-    const hitPiece = findPieceAt(mouseX, mouseY);
+
+    // Convert screen to world coordinates if zoom is enabled
+    let mx = mouseX;
+    let my = mouseY;
+    if (viewSettings.zoomEnabled && !magnifierState.enabled) {
+      const worldCoords = screenToWorld(mouseX, mouseY);
+      mx = worldCoords.x;
+      my = worldCoords.y;
+    }
+
+    const hitPiece = findPieceAt(mx, my);
     if (hitPiece) {
       // record which piece was under the pointer for later wrong-link detection
       window.__draggedPiece = hitPiece;
@@ -1730,23 +1734,23 @@ export function wireControls() {
       return;
     }
     // start per-piece grab only when analytics view allows normal interaction
-    if (hitPiece && styleState.analyticsView === "none") startGrabAt(hitPiece, mouseX, mouseY);
+    if (hitPiece && styleState.analyticsView === "none") startGrabAt(hitPiece, mx, my);
     for (let gi = groups.length - 1; gi >= 0; gi--) {
       const g = groups[gi];
-      if (window.__groupAlphaHit(g, mouseX, mouseY)) {
+      if (window.__groupAlphaHit(g, mx, my)) {
         groups.push(groups.splice(gi, 1)[0]);
         window.__dragging = g;
         const c = g.getCenter();
-        window.__dragDX = mouseX - c.cx;
-        window.__dragDY = mouseY - c.cy;
+        window.__dragDX = mx - c.cx;
+        window.__dragDY = my - c.cy;
         // if a whole group is grabbed, mark the member piece closest to the
         // pointer as the dragged piece for wrong-link detection
         try {
           let closest = null;
           let cd = Infinity;
           for (const m of g.members) {
-            const dx = (m.x + m.sw/2) - mouseX;
-            const dy = (m.y + m.sh/2) - mouseY;
+            const dx = (m.x + m.sw/2) - mx;
+            const dy = (m.y + m.sh/2) - my;
             const d = Math.hypot(dx, dy);
             if (d < cd) { cd = d; closest = m; }
           }
@@ -1779,8 +1783,18 @@ export function wireControls() {
     if (window.__modalOpen) return;
     const g = window.__dragging;
     if (!g) return;
+
+    // Convert screen to world coordinates if zoom is enabled
+    let mx = mouseX;
+    let my = mouseY;
+    if (viewSettings.zoomEnabled && !magnifierState.enabled) {
+      const worldCoords = screenToWorld(mouseX, mouseY);
+      mx = worldCoords.x;
+      my = worldCoords.y;
+    }
+
     const c = g.getCenter();
-    const targetCX = mouseX - window.__dragDX, targetCY = mouseY - window.__dragDY;
+    const targetCX = mx - window.__dragDX, targetCY = my - window.__dragDY;
     g.move(targetCX - c.cx, targetCY - c.cy, window.__clampPiece);
     redraw();
   };

@@ -35,6 +35,13 @@ export function resetZoom() {
   zoomState.scale = 1.0;
   zoomState.offsetX = 0;
   zoomState.offsetY = 0;
+
+  // Clean up pan state to prevent "stuck" panning
+  zoomState.isPanning = false;
+  zoomState.panStartX = 0;
+  zoomState.panStartY = 0;
+  zoomState.panStartOffsetX = 0;
+  zoomState.panStartOffsetY = 0;
 }
 
 // Zoom in
