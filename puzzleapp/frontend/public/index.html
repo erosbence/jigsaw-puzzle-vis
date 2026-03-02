@@ -35,6 +35,7 @@
           </label>
         </div>
         <button id="startGame" class="primary" type="button" disabled data-i18n="startGame">Játék indítása</button>
+        <div id="sizeError" class="hint" style="display:none; color: #d32f2f; margin-top: 8px;"></div>
         <button id="showStats" class="ghost" type="button" data-i18n="showStats">📊 Statisztikák</button>
         <button id="showAbout" class="ghost" type="button" data-i18n="showAbout">ℹ️ A kutatásról</button>
         <div id="startLoading" class="hint" style="display:none;" data-i18n="loading">Betöltés…</div>
@@ -111,7 +112,7 @@
                   <option value="none" data-i18n="analyticsViewNone">Kikapcsolva</option>
                   <option value="heatmap" data-i18n="analyticsViewHeatmap">Időlenyomat</option>
                   <option value="grabs" data-i18n="analyticsViewGrabs">Elkapási pontok</option>
-                  <option value="connections" data-i18n="analyticsViewConnections">Kapcsolatok</option>
+                  <!--<option value="connections" data-i18n="analyticsViewConnections">Kapcsolatok</option>-->
                   <option value="paths" data-i18n="analyticsViewPaths">Mozgási útvonalak</option>
                 </select>
               </div>

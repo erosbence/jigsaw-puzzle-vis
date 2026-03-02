@@ -1077,8 +1077,15 @@ function updateSelectionUI() {
 
 function updateStartButton() {
   const btn = document.getElementById('startGame');
+  const sizeError = document.getElementById('sizeError');
   const ok = !!(selectedItemId && selectedSize);
-  btn.disabled = !ok;
+  // Don't disable button - let click handler show error message
+  // btn.disabled = !ok;
+  btn.disabled = false;
+  // Hide error message when size is selected
+  if (selectedSize && sizeError) {
+    sizeError.style.display = 'none';
+  }
 }
 
 async function buildFormDataFromUrls(imageUrl, maskUrl) {
@@ -1556,7 +1563,40 @@ export function wireControls() {
     // do not re-enable interactions when confirming leave; remain blocked until a new game starts
     hideConfirmLeave(false);
   });
-  document.getElementById('startGame').addEventListener('click', startPuzzleFromGallery);
+  document.getElementById('startGame').addEventListener('click', () => {
+    const sizeError = document.getElementById('sizeError');
+
+    // Check if image is selected
+    if (!selectedItemId) {
+      if (sizeError) {
+        sizeError.textContent = t('startHint'); // "Válassz képet a galériából, majd add meg a méretet."
+        sizeError.style.display = 'block';
+        setTimeout(() => {
+          sizeError.style.display = 'none';
+        }, 3000);
+      }
+      return;
+    }
+
+    // Check if size is selected
+    if (!selectedSize) {
+      if (sizeError) {
+        sizeError.textContent = t('selectSizeFirst');
+        sizeError.style.display = 'block';
+        // Hide error after 3 seconds
+        setTimeout(() => {
+          sizeError.style.display = 'none';
+        }, 3000);
+      }
+      return;
+    }
+
+    // Hide error if it was visible
+    if (sizeError) {
+      sizeError.style.display = 'none';
+    }
+    startPuzzleFromGallery();
+  });
 
   // Statistics button
   const showStatsBtn = document.getElementById('showStats');
