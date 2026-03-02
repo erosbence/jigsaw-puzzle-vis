@@ -1113,6 +1113,10 @@ async function startPuzzleFromGallery() {
   const rotCheckbox = document.getElementById('rotationEnabled');
   if (rotCheckbox) gameSettings.rotationEnabled = rotCheckbox.checked;
 
+  // Read rotation percentage from slider
+  const rotPercentage = document.getElementById('rotationPercentage');
+  if (rotPercentage) gameSettings.rotationPercentage = parseInt(rotPercentage.value, 10);
+
   // Stop any running intervals
   if (dragTrackInterval) {
     clearInterval(dragTrackInterval);
@@ -1354,6 +1358,28 @@ export function wireControls() {
     setTimerVisible(timerToggle.checked);
     timerToggle.addEventListener('change', () => setTimerVisible(timerToggle.checked));
   }
+
+  // Rotation controls
+  const rotationEnabled = document.getElementById('rotationEnabled');
+  const rotationControls = document.getElementById('rotationControls');
+  const rotationPercentage = document.getElementById('rotationPercentage');
+  const rotationPercentageLbl = document.getElementById('rotationPercentageLbl');
+
+  if (rotationEnabled && rotationControls) {
+    rotationEnabled.addEventListener('change', () => {
+      gameSettings.rotationEnabled = rotationEnabled.checked;
+      rotationControls.style.display = rotationEnabled.checked ? 'block' : 'none';
+    });
+  }
+
+  if (rotationPercentage && rotationPercentageLbl) {
+    rotationPercentage.addEventListener('input', () => {
+      const value = parseInt(rotationPercentage.value, 10);
+      gameSettings.rotationPercentage = value;
+      rotationPercentageLbl.textContent = `${value}%`;
+    });
+  }
+
   const analyticsView = document.getElementById('analyticsView');
   const analyticsDesc = document.getElementById('analyticsDesc');
   if (analyticsView) {

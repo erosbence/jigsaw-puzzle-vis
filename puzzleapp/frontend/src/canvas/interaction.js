@@ -122,10 +122,18 @@ export function shufflePieces(newGroupFactory) {
   // Apply random rotation if enabled
   if (gameSettings.rotationEnabled) {
     const rotations = [0, 90, 180, 270];
+    const percentage = gameSettings.rotationPercentage / 100;
     pieces.forEach(p => {
-      const randomRotation = rotations[Math.floor(Math.random() * rotations.length)];
-      p.rotation = randomRotation;
-      p.rotationTarget = randomRotation;
+      // Only rotate if random value is within the percentage threshold
+      if (Math.random() < percentage) {
+        const randomRotation = rotations[Math.floor(Math.random() * rotations.length)];
+        p.rotation = randomRotation;
+        p.rotationTarget = randomRotation;
+      } else {
+        // Keep default orientation (0 degrees)
+        p.rotation = 0;
+        p.rotationTarget = 0;
+      }
     });
   }
 

@@ -37,6 +37,11 @@ header h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.2px; }
 .size-options { display:flex; flex-wrap:wrap; gap:8px; min-height:36px; }
 .size-btn { padding:8px 10px; border:1px solid #ccc; border-radius:999px; background:#fff; cursor:pointer; font-size:13px; }
 .size-btn.selected { border-color:#111; background:#111; color:#fff; }
+
+/* Difficulty settings panel */
+.difficulty-panel { margin-top:16px; padding:14px; background:#f9f9fb; border:2px solid #d0d0d5; border-radius:10px; }
+.difficulty-panel h4 { margin:0 0 8px; font-size:14px; font-weight:600; color:#333; text-transform:none; letter-spacing:0; }
+
 body.game-started .start-screen { display:none; }
 
 aside { border-left:1px solid #e5e5ea; background:#fafafa; position:relative; overflow:hidden; }

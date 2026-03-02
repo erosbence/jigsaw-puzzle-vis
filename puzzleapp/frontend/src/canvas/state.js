@@ -17,7 +17,7 @@ export let connectionsState = { selected: null, snapshotIdx: 0 };
 export const styleState = { outline: true, outlineW: 1, shadow: false, shadowI: 35, pieceScale: 0.40, analyticsView: "none" };
 
 // Game settings
-export const gameSettings = { rotationEnabled: false };
+export const gameSettings = { rotationEnabled: false, rotationPercentage: 100 };
 
 // Zoom settings
 export const viewSettings = { 

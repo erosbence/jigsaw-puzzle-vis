@@ -28,11 +28,23 @@
       <div class="start-right">
         <h3 data-i18n="sizeTitle">Méret</h3>
         <div id="sizeOptions" class="size-options"></div>
-        <div class="row" style="margin-top: 12px;">
-          <label for="rotationEnabled">
-            <input type="checkbox" id="rotationEnabled" />
-            <span data-i18n="rotationEnabled">Darabok elforgatva</span>
-          </label>
+        <div class="difficulty-panel">
+          <h4 data-i18n="difficultySettings">Nehézségi szint beállítása</h4>
+          <div class="row" style="margin-top: 12px;">
+            <label for="rotationEnabled">
+              <input type="checkbox" id="rotationEnabled" />
+              <span data-i18n="rotationEnabled">Darabok elforgatva</span>
+            </label>
+          </div>
+          <div id="rotationControls" style="display:none; margin-top: 8px;">
+            <div class="row">
+              <label for="rotationPercentage" data-i18n="rotationPercentage">Forgatott darabok aránya</label>
+              <input type="range" id="rotationPercentage" min="0" max="100" value="100" step="10" />
+            </div>
+            <div class="row">
+              <span class="hint"><span data-i18n="current">Aktuális:</span> <b id="rotationPercentageLbl">100%</b></span>
+            </div>
+          </div>
         </div>
         <button id="startGame" class="primary" type="button" disabled data-i18n="startGame">Játék indítása</button>
         <div id="sizeError" class="hint" style="display:none; color: #d32f2f; margin-top: 8px;"></div>
