@@ -131,50 +131,155 @@ export function shufflePieces(newGroupFactory) {
 
   for (const p of pieces) groups.push(newGroupFactory(p));
 
-  // Get target area to avoid
+  // === AUTO-SCALING LOOP: Reduce scale until all pieces fit ===
+  let currentScale = styleState.pieceScale;
+  let placementSuccessful = false;
+  const minScale = 0.1;
+  const scaleDecrement = 0.05; // Reduce by 5% each iteration
+
+  while (!placementSuccessful && currentScale >= minScale) {
+    // Update global scale
+    styleState.pieceScale = currentScale;
+
+    // Try to place all pieces with collision detection
+    const result = tryPlaceAllPieces(groups);
+
+    if (result.success) {
+      placementSuccessful = true;
+    } else {
+      // Too many collisions, reduce scale and retry
+      currentScale -= scaleDecrement;
+    }
+  }
+
+  // Update UI to reflect final scale
+  const pieceScaleRange = typeof document !== 'undefined' ? document.getElementById('pieceScaleRange') : null;
+  const pieceScaleLbl = typeof document !== 'undefined' ? document.getElementById('pieceScaleLbl') : null;
+  if (pieceScaleRange) pieceScaleRange.value = Math.round(styleState.pieceScale * 100);
+  if (pieceScaleLbl) pieceScaleLbl.textContent = `${Math.round(styleState.pieceScale * 100)}%`;
+
+  replaceGroups(groups);
+}
+
+// Helper function: Try to place all pieces randomly with collision detection
+function tryPlaceAllPieces(groups) {
   const { originX, originY, W, H } = gridRectScaled(width, height);
-  const margin = 30;
+
+  // No overlap allowed with grid zone - 30px buffer to prevent edge bleeding
+  const bufferZone = 30;
+  const margin = bufferZone; // Positive margin creates safe zone around grid
+  const spacing = 10;
+
+  const gridLeft = originX - margin;
+  const gridRight = originX + W + margin;
+  const gridTop = originY - margin;
+  const gridBottom = originY + H + margin;
+
+  // Available placement areas (outside grid zone, no overlap allowed)
+  // For 2x2 puzzles (4 pieces), only use side areas to prevent top/bottom overlap
+  const useSidesOnly = groups.length <= 4;
+
+  const areas = [];
+  if (gridLeft > 0) {
+    areas.push({ minX: 0, maxX: gridLeft, minY: 0, maxY: height });
+  }
+  if (width - gridRight > 0) {
+    areas.push({ minX: gridRight, maxX: width, minY: 0, maxY: height });
+  }
+  if (!useSidesOnly && gridTop > 0) {
+    areas.push({ minX: 0, maxX: width, minY: 0, maxY: gridTop });
+  }
+  if (!useSidesOnly && height - gridBottom > 0) {
+    areas.push({ minX: 0, maxX: width, minY: gridBottom, maxY: height });
+  }
+
+  const placedBounds = [];
+  let successfulPlacements = 0;
+  const maxAttemptsPerPiece = 200;
 
   for (const g of groups) {
-    const b = g.getBounds();
-
-    // Define forbidden area
-    const gridLeft = originX - margin;
-    const gridRight = originX + W + margin;
-    const gridTop = originY - margin;
-    const gridBottom = originY + H + margin;
-
-    // Available areas
-    const areas = [];
-
-    if (gridLeft > b.w) {
-      areas.push({ minX: 0, maxX: gridLeft - b.w, minY: 0, maxY: height - b.h });
-    }
-    if (width - gridRight > b.w) {
-      areas.push({ minX: gridRight, maxX: width - b.w, minY: 0, maxY: height - b.h });
-    }
-    if (gridTop > b.h) {
-      areas.push({ minX: 0, maxX: width - b.w, minY: 0, maxY: gridTop - b.h });
-    }
-    if (height - gridBottom > b.h) {
-      areas.push({ minX: 0, maxX: width - b.w, minY: gridBottom, maxY: height - b.h });
+    // Save original position
+    const originalBounds = g.getBounds();
+    const originalPositions = new Map();
+    for (const p of g.members) {
+      originalPositions.set(p, { x: p.x, y: p.y });
     }
 
-    // Pick random position
-    let targetX, targetY;
-    if (areas.length > 0) {
+    // Calculate effective bounds (with rotation)
+    const piece = Array.from(g.members)[0];
+    let effectiveW = originalBounds.w;
+    let effectiveH = originalBounds.h;
+
+    if (gameSettings.rotationEnabled && piece && Math.abs(piece.rotation) > 1) {
+      const diagonal = Math.sqrt(originalBounds.w * originalBounds.w + originalBounds.h * originalBounds.h);
+      effectiveW = diagonal;
+      effectiveH = diagonal;
+    }
+
+    let foundPosition = false;
+
+    for (let attempt = 0; attempt < maxAttemptsPerPiece && !foundPosition; attempt++) {
+      // Reset to original position
+      for (const p of g.members) {
+        const orig = originalPositions.get(p);
+        p.x = orig.x;
+        p.y = orig.y;
+      }
+
+      // Pick random position in random area
+      if (areas.length === 0) break;
       const area = areas[Math.floor(Math.random() * areas.length)];
-      targetX = area.minX + Math.random() * Math.max(1, area.maxX - area.minX);
-      targetY = area.minY + Math.random() * Math.max(1, area.maxY - area.minY);
-    } else {
-      // Fallback if grid too large
-      targetX = Math.random() * Math.max(1, width - b.w);
-      targetY = Math.random() * Math.max(1, height - b.h);
-    }
 
-    const dx = targetX - b.x;
-    const dy = targetY - b.y;
-    g.move(dx, dy, clampPiece);
+      const candidateX = area.minX + Math.random() * Math.max(1, area.maxX - area.minX - effectiveW);
+      const candidateY = area.minY + Math.random() * Math.max(1, area.maxY - area.minY - effectiveH);
+
+      // Calculate move
+      let dx, dy;
+      if (gameSettings.rotationEnabled && effectiveW !== originalBounds.w) {
+        const offsetX = (effectiveW - originalBounds.w) / 2;
+        const offsetY = (effectiveH - originalBounds.h) / 2;
+        dx = (candidateX + offsetX) - originalBounds.x;
+        dy = (candidateY + offsetY) - originalBounds.y;
+      } else {
+        dx = candidateX - originalBounds.x;
+        dy = candidateY - originalBounds.y;
+      }
+
+      // Move piece
+      g.move(dx, dy, clampPiece);
+
+      // Check collision
+      const testBounds = g.getBounds();
+      let checkX = testBounds.x;
+      let checkY = testBounds.y;
+      let checkW = testBounds.w;
+      let checkH = testBounds.h;
+
+      if (gameSettings.rotationEnabled && effectiveW !== testBounds.w) {
+        const offsetX = (effectiveW - testBounds.w) / 2;
+        const offsetY = (effectiveH - testBounds.h) / 2;
+        checkX = testBounds.x - offsetX;
+        checkY = testBounds.y - offsetY;
+        checkW = effectiveW;
+        checkH = effectiveH;
+      }
+
+      const hasCollision = placedBounds.some(placed => {
+        return !(checkX + checkW + spacing < placed.x ||
+                 checkX > placed.x + placed.w + spacing ||
+                 checkY + checkH + spacing < placed.y ||
+                 checkY > placed.y + placed.h + spacing);
+      });
+
+      if (!hasCollision) {
+        foundPosition = true;
+        successfulPlacements++;
+        placedBounds.push({ x: checkX, y: checkY, w: checkW, h: checkH });
+      }
+    }
   }
-  replaceGroups(groups);
+
+  // Success if at least 80% of pieces were placed successfully
+  const successRate = successfulPlacements / groups.length;
+  return { success: successRate >= 0.8, successRate };
 }

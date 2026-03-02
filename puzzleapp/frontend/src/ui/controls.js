@@ -1302,6 +1302,11 @@ async function runPuzzleLoad(formData) {
     newGroup(g);
   }
 
+  // Apply collision-free shuffle to initial placement
+  // Import shufflePieces from interaction.js
+  const { shufflePieces } = await import("../canvas/interaction.js");
+  shufflePieces((p) => new Group(p));
+
   // create initial global snapshot and register per-piece snapshot indices
   resetGlobalSnapshots();
   const initSnap = addGlobalSnapshot(listPieces());
