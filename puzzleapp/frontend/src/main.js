@@ -1,6 +1,6 @@
 import { wireControls } from "./ui/controls.js";
-import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections, drawMovementPaths } from "./canvas/draw.js";
-import { styleState, setCanvasSize, puzzleGrid, timerState, listPieces, setHoverPiece, gameSettings, viewSettings, puzzleMeta } from "./canvas/state.js";
+import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections, drawMovementPaths, drawAdjacencyMatrix } from "./canvas/draw.js";
+import { styleState, setCanvasSize, puzzleGrid, timerState, listPieces, setHoverPiece, gameSettings, viewSettings, puzzleMeta, rgbButtonPositions, setRGBMapProjection, rgbMapProjection, matrixGroupingButtonPos, toggleMatrixGrouping } from "./canvas/state.js";
 import { clampPiece, groupAlphaHit, targetTopLeft, shufflePieces } from "./canvas/interaction.js";
 import { Group } from "./canvas/group.js";
 import { gridRectScaled } from "./ui/layout.js";
@@ -218,6 +218,12 @@ window.draw = function () {
     if (needsRedraw) setTimeout(() => redraw(), 16);
     return;
   }
+  if (styleState.analyticsView === "adjacency") {
+    drawAdjacencyMatrix(width, height, listPieces());
+    pop();
+    if (needsRedraw) setTimeout(() => redraw(), 16);
+    return;
+  }
 
   for (const g of (window.__groups || [])) g.draw(window.__drawPiece || drawPiece);
 
@@ -230,6 +236,38 @@ window.draw = function () {
 };
 
 window.mousePressed = () => {
+  // Check matrix grouping button FIRST (for adjacency matrix view)
+  if (matrixGroupingButtonPos.visible) {
+    const { x, y, w, h } = matrixGroupingButtonPos;
+    if (mouseX >= x && mouseX <= x + w &&
+        mouseY >= y && mouseY <= y + h) {
+      toggleMatrixGrouping();
+      redraw();
+      return; // Don't process other clicks
+    }
+  }
+
+  // Check RGB map buttons (second priority)
+  if (rgbButtonPositions.visible) {
+    const { leftX, leftY, rightX, rightY, size } = rgbButtonPositions;
+
+    // Check left button
+    if (mouseX >= leftX && mouseX <= leftX + size &&
+        mouseY >= leftY && mouseY <= leftY + size) {
+      setRGBMapProjection(rgbMapProjection - 1 + 3); // Backwards
+      redraw();
+      return; // Don't process other clicks
+    }
+
+    // Check right button
+    if (mouseX >= rightX && mouseX <= rightX + size &&
+        mouseY >= rightY && mouseY <= rightY + size) {
+      setRGBMapProjection(rgbMapProjection + 1); // Forward
+      redraw();
+      return; // Don't process other clicks
+    }
+  }
+
   // Handle pan start if zoom is enabled and not dragging a piece
   if (viewSettings.zoomEnabled) {
     // Convert screen coordinates to world coordinates for accurate hit detection
@@ -284,6 +322,9 @@ window.mouseMoved = () => {
     redraw();
   } else if (styleState.analyticsView === "paths") {
     // Redraw when mouse moves in paths view to show hover effects
+    redraw();
+  } else if (styleState.analyticsView === "adjacency") {
+    // Redraw when mouse moves in adjacency matrix to show color preview
     redraw();
   }
 };

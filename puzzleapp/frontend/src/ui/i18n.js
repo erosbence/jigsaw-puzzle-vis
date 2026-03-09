@@ -46,10 +46,12 @@ const STRINGS = {
     analyticsViewGrabs: "Elkapási pontok",
     analyticsViewConnections: "Kapcsolatok",
     analyticsViewPaths: "Mozgási útvonalak",
+    analyticsViewAdjacency: "Szomszédsági mátrix",
     analyticsDescNone: "Válassz egy nézetet az analitikához.",
     analyticsDescHeatmap: "A cellák színe jelzi, mikor került helyére az adott darab.",
     analyticsDescGrabs: "A pontok azt mutatják, hol fogtad meg a darabokat az idő során.",
     analyticsDescPaths: "Minden darab mozgási útvonalát egy görbe mutatja, időben színezve (kék → zöld → sárga → piros). A görbe vastagsága jelzi a mozgás sebességét: vastagabb vonal = lassabb mozgás.",
+    analyticsDescAdjacency: "A mátrix sorai és oszlopai a darabokat reprezentálják (sarok → élek → közép, szín szerint rendezve). A cellák színe jelzi az interakciók gyakoriságát a darabok között.",
    analyticsDescConnections: "Kezdés: Kattints az ábrán valamelyik csomópontra egy puzzle-darabka kiválasztásához. A nézet a többi elemet a kiválasztott darabka megjelenített középpontjától mért távolság alapján rendezi, majd kiválasztja a rács által elvárt számú ortogonális szomszédnak megfelelő legközelebbi jelölteket (N, ahol N azt jelenti, hány darabkával illeszthető össze az adott elem). Minden jelölt esetén kiszámítja az aktuális megjelenített távolságot (d_cur), valamint a referencia-távolságot (d_ref), amely a célpozíciók középpontjai közötti távolságot jelenti.",
     connLegendCorrect: "Kék: a két darab egymáshoz van kapcsolva, illesztés történt",
     connLegendTooFar: "Sötét piros: a darabok távolabb vannak egymástól, mint ahogy a helyes pozíciójuk alapján várható lenne",
@@ -100,6 +102,27 @@ const STRINGS = {
     pathPickedAt: "Felvéve",
     pathPlacedAt: "Letéve",
     exportPathsLabel: "Mozgási útvonalak mentése (SVG)",
+    noMatrixData: "Nincs elérhető adat a mátrixhoz",
+    adjacencyMatrixTitle: "Darab Interakciós Mátrix",
+    matrixLegend: "Sorok és oszlopok: Darabok sorrendje (sarok → élek → közép, szín szerint rendezve)",
+    matrixInteractions: "Interakciók száma",
+    matrixGroupCorners: "Sarok",
+    matrixGroupEdges: "Élek",
+    matrixGroupCenters: "Közép",
+
+    // RGB Color Map
+    rgbColorSpace: "RGB Színtér",
+    colorRed: "Piros",
+    colorGreen: "Zöld",
+    colorBlue: "Kék",
+    colorProjectionRedGreen: "Piros-Zöld",
+    colorProjectionRedBlue: "Piros-Kék",
+    colorProjectionGreenBlue: "Zöld-Kék",
+    colorMapRow: "Sor",
+    colorMapColumn: "Oszlop",
+    matrixGroupingEnabled: "Csoportok felbontása",
+    matrixGroupingDisabled: "Csoportok bekapcsolása",
+    matrixLegendNoGroups: "Sorok és oszlopok: Darabok sorrendben (csak szín alapján rendezve)",
 
     // Statistics
     showStats: "📊 Statisztikák",
@@ -201,10 +224,12 @@ const STRINGS = {
     analyticsViewGrabs: "Grab points",
     analyticsViewConnections: "Connections",
     analyticsViewPaths: "Movement paths",
+    analyticsViewAdjacency: "Adjacency matrix",
     analyticsDescNone: "Select a view to see analytics.",
     analyticsDescHeatmap: "Cell colors show when each piece was placed.",
     analyticsDescGrabs: "Points show where you grabbed pieces over time.",
     analyticsDescPaths: "Curves show each piece's movement path, color-coded by time (blue → green → yellow → red). Line thickness indicates movement speed: thicker = slower movement.",
+    analyticsDescAdjacency: "Matrix rows and columns represent pieces (corners → edges → centers, sorted by color). Cell colors indicate interaction frequency between pieces.",
     analyticsDescConnections: "Start: Click on any node in the diagram to select a puzzle piece. The view sorts the other pieces based on their distance from the displayed center of the selected piece, and selects the nearest candidates corresponding to the grid-expected number of orthogonal neighbors (N, where N denotes how many pieces the given piece can be joined with). For each candidate, it computes both the current displayed distance (d_cur) and the reference distance (d_ref), defined as the distance between the centers of the target positions.",
     connLegendCorrect: "Blue: the two pieces are connected (merged)",
     connLegendTooFar: "Dark red: the pieces are further apart than expected based on their correct positions",
@@ -256,6 +281,27 @@ const STRINGS = {
     pathPickedAt: "Picked up at",
     pathPlacedAt: "Placed at",
     exportPathsLabel: "Export Paths (SVG)",
+    noMatrixData: "No data available for matrix",
+    adjacencyMatrixTitle: "Piece Interaction Matrix",
+    matrixLegend: "Rows & Columns: Piece order (corners → edges → centers, sorted by color)",
+    matrixInteractions: "Interaction count",
+    matrixGroupCorners: "Corners",
+    matrixGroupEdges: "Edges",
+    matrixGroupCenters: "Centers",
+
+    // RGB Color Map
+    rgbColorSpace: "RGB Color Space",
+    colorRed: "Red",
+    colorGreen: "Green",
+    colorBlue: "Blue",
+    colorProjectionRedGreen: "Red-Green",
+    colorProjectionRedBlue: "Red-Blue",
+    colorProjectionGreenBlue: "Green-Blue",
+    colorMapRow: "Row",
+    colorMapColumn: "Column",
+    matrixGroupingEnabled: "Ungroup",
+    matrixGroupingDisabled: "Group by type",
+    matrixLegendNoGroups: "Rows & Columns: Piece order (sorted by color only)",
 
     // Statistics
     showStats: "📊 Statistics",
@@ -327,6 +373,11 @@ export function setLang(lang) {
   currentLang = lang;
   try { localStorage.setItem("lang", lang); } catch (_) {}
   applyTranslations();
+
+  // Trigger canvas redraw to update all canvas text
+  if (typeof redraw === 'function') {
+    redraw();
+  }
 }
 
 export function initI18n() {

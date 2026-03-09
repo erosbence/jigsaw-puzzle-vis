@@ -1,4 +1,4 @@
-﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState, puzzleMeta, bounds, addGlobalSnapshot, globalSnapshots, connectionsState, resetGlobalSnapshots, gameSettings, setHoverPiece, viewSettings } from "../canvas/state.js";
+﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState, puzzleMeta, bounds, addGlobalSnapshot, globalSnapshots, connectionsState, resetGlobalSnapshots, gameSettings, setHoverPiece, viewSettings, recordPieceInteraction, resetPieceInteractionMatrix } from "../canvas/state.js";
 import { drawPiece } from "../canvas/draw.js";
 import { PuzzlePiece } from "../canvas/piece.js";
 import { Group } from "../canvas/group.js";
@@ -38,6 +38,7 @@ let timerInterval = null;
 let timerStart = 0;
 let timerElapsed = 0;
 let activeGrab = null;
+let lastGrabbedPieceIndex = null; // Track last grabbed piece for interaction matrix
 let dragTrackInterval = null; // Interval for tracking drag positions
 let currentGameId = null; // Session tracking: current game ID
 // When a modal is open we block interactions with the canvas
@@ -763,6 +764,7 @@ function updateAnalyticsDesc() {
   else if (styleState.analyticsView === "grabs") analyticsDesc.textContent = t("analyticsDescGrabs");
   else if (styleState.analyticsView === "connections") analyticsDesc.textContent = t("analyticsDescConnections");
   else if (styleState.analyticsView === "paths") analyticsDesc.textContent = t("analyticsDescPaths");
+  else if (styleState.analyticsView === "adjacency") analyticsDesc.textContent = t("analyticsDescAdjacency");
   else analyticsDesc.textContent = t("analyticsDescNone");
 }
 
@@ -843,6 +845,12 @@ function startGrabAt(piece, mx, my) {
   const ix = Math.max(0, Math.min(piece.w - 1, Math.floor(u * piece.w)));
   const iy = Math.max(0, Math.min(piece.h - 1, Math.floor(v * piece.h)));
   activeGrab = { piece, x: ix, y: iy, start: timerState.elapsed };
+
+  // Record piece-to-piece interaction for adjacency matrix
+  if (lastGrabbedPieceIndex !== null && typeof piece.index !== 'undefined') {
+    recordPieceInteraction(lastGrabbedPieceIndex, piece.index);
+  }
+  lastGrabbedPieceIndex = piece.index;
 
   // Track grab for statistics
   if (currentGameId) {
@@ -1320,6 +1328,8 @@ async function runPuzzleLoad(formData) {
 
   // create initial global snapshot and register per-piece snapshot indices
   resetGlobalSnapshots();
+  resetPieceInteractionMatrix(); // Reset interaction matrix for new game
+  lastGrabbedPieceIndex = null; // Reset last grabbed piece tracker
   const initSnap = addGlobalSnapshot(listPieces());
   for (const p of listPieces()) p.snapshots = [initSnap];
 

@@ -1,6 +1,6 @@
 import { gridRectScaled } from "../ui/layout.js";
 import { t } from "../ui/i18n.js";
-import { styleState, puzzleMeta, listPieces, listWrongLinks, globalSnapshots, connectionsState, puzzleGrid, hoverPiece } from "./state.js";
+import { styleState, puzzleMeta, listPieces, listWrongLinks, globalSnapshots, connectionsState, puzzleGrid, hoverPiece, getPieceInteractionMatrix, matrixHoverState, setMatrixHoverState, rgbMapProjection, setRGBMapProjection, setRGBButtonPositions, clearRGBButtonPositions, getMatrixGroupingEnabled, setMatrixGroupingButtonPos, clearMatrixGroupingButtonPos, matrixCurrentOrder, setMatrixCurrentOrder, matrixAnimationState, startMatrixAnimation, getMatrixAnimationProgress } from "./state.js";
 import { averagePieceDiagonal } from "./interaction.js";
 
 export function drawBackground(width, height) {
@@ -743,6 +743,1175 @@ export function drawPiece(piece, st) {
     rect(0, 0, sw, sh);
     pop();
   }
+
+  pop();
+}
+
+// ============================================================================
+// ADJACENCY MATRIX VISUALIZATION
+// ============================================================================
+
+// Helper: Extract dominant color from a piece image (kept for backward compatibility)
+function getDominantColor(piece) {
+  const colors = getDominantColors(piece);
+  return colors[0]; // Return the most dominant color
+}
+
+// Helper: Extract 3 dominant colors from a piece image using simplified k-means clustering
+function getDominantColors(piece, k = 3) {
+  if (!piece || !piece.img || !piece.img.pixels) {
+    return [
+      { r: 128, g: 128, b: 128 },
+      { r: 100, g: 100, b: 100 },
+      { r: 150, g: 150, b: 150 }
+    ];
+  }
+
+  // Check if we already cached the colors for this piece
+  if (piece._cachedDominantColors) {
+    return piece._cachedDominantColors;
+  }
+
+  const pixels = piece.img.pixels;
+  const len = pixels.length;
+
+  // Collect all non-transparent pixels (with sampling for performance)
+  const samples = [];
+  for (let i = 0; i < len; i += 40) { // Sample every 10th pixel
+    const alpha = pixels[i + 3];
+    if (alpha > 10) {
+      samples.push({
+        r: pixels[i],
+        g: pixels[i + 1],
+        b: pixels[i + 2]
+      });
+    }
+  }
+
+  if (samples.length === 0) {
+    return [
+      { r: 128, g: 128, b: 128 },
+      { r: 100, g: 100, b: 100 },
+      { r: 150, g: 150, b: 150 }
+    ];
+  }
+
+  // Initialize k centroids by picking random samples
+  const centroids = [];
+  const usedIndices = new Set();
+  for (let i = 0; i < k && i < samples.length; i++) {
+    let randomIdx;
+    do {
+      randomIdx = Math.floor(Math.random() * samples.length);
+    } while (usedIndices.has(randomIdx));
+    usedIndices.add(randomIdx);
+    centroids.push({ ...samples[randomIdx] });
+  }
+
+  // If we don't have enough samples for k clusters, fill with variations
+  while (centroids.length < k) {
+    const base = centroids[0];
+    centroids.push({
+      r: Math.min(255, base.r + 30),
+      g: Math.min(255, base.g + 30),
+      b: Math.min(255, base.b + 30)
+    });
+  }
+
+  // K-means iterations (simplified - just a few iterations for performance)
+  const maxIterations = 5;
+  for (let iter = 0; iter < maxIterations; iter++) {
+    // Assign each sample to nearest centroid
+    const clusters = Array(k).fill(null).map(() => []);
+
+    for (const sample of samples) {
+      let minDist = Infinity;
+      let bestCluster = 0;
+
+      for (let c = 0; c < k; c++) {
+        const dist = Math.sqrt(
+          Math.pow(sample.r - centroids[c].r, 2) +
+          Math.pow(sample.g - centroids[c].g, 2) +
+          Math.pow(sample.b - centroids[c].b, 2)
+        );
+
+        if (dist < minDist) {
+          minDist = dist;
+          bestCluster = c;
+        }
+      }
+
+      clusters[bestCluster].push(sample);
+    }
+
+    // Update centroids
+    for (let c = 0; c < k; c++) {
+      if (clusters[c].length === 0) continue;
+
+      let sumR = 0, sumG = 0, sumB = 0;
+      for (const sample of clusters[c]) {
+        sumR += sample.r;
+        sumG += sample.g;
+        sumB += sample.b;
+      }
+
+      centroids[c] = {
+        r: Math.round(sumR / clusters[c].length),
+        g: Math.round(sumG / clusters[c].length),
+        b: Math.round(sumB / clusters[c].length)
+      };
+    }
+  }
+
+  // Sort centroids by frequency (cluster size) - most common first
+  const finalClusters = Array(k).fill(null).map(() => []);
+  for (const sample of samples) {
+    let minDist = Infinity;
+    let bestCluster = 0;
+
+    for (let c = 0; c < k; c++) {
+      const dist = Math.sqrt(
+        Math.pow(sample.r - centroids[c].r, 2) +
+        Math.pow(sample.g - centroids[c].g, 2) +
+        Math.pow(sample.b - centroids[c].b, 2)
+      );
+
+      if (dist < minDist) {
+        minDist = dist;
+        bestCluster = c;
+      }
+    }
+
+    finalClusters[bestCluster].push(sample);
+  }
+
+  // Sort by cluster size (descending)
+  const sortedCentroids = centroids
+    .map((centroid, idx) => ({ centroid, size: finalClusters[idx].length }))
+    .sort((a, b) => b.size - a.size)
+    .map(item => item.centroid);
+
+  // Cache the result so we don't need to recalculate on every redraw
+  piece._cachedDominantColors = sortedCentroids;
+
+  return sortedCentroids;
+}
+
+// Helper: Calculate color distance (Euclidean distance in RGB space)
+function colorDistance(c1, c2) {
+  const dr = c1.r - c2.r;
+  const dg = c1.g - c2.g;
+  const db = c1.b - c2.b;
+  return Math.sqrt(dr * dr + dg * dg + db * db);
+}
+
+// Helper: Calculate distance between two color palettes (3 colors each)
+function paletteDistance(palette1, palette2) {
+  if (!palette1 || !palette2 || palette1.length !== 3 || palette2.length !== 3) {
+    return Infinity;
+  }
+
+  // Use weighted distance: most dominant color has highest weight
+  const weights = [0.5, 0.3, 0.2]; // Weight for 1st, 2nd, 3rd color
+  let totalDist = 0;
+
+  for (let i = 0; i < 3; i++) {
+    totalDist += colorDistance(palette1[i], palette2[i]) * weights[i];
+  }
+
+  return totalDist;
+}
+
+// Helper: Count neighbors for a piece based on grid position
+function countNeighbors(piece, rows, cols) {
+  let count = 0;
+  if (piece.r > 0) count++; // top
+  if (piece.r < rows - 1) count++; // bottom
+  if (piece.c > 0) count++; // left
+  if (piece.c < cols - 1) count++; // right
+  return count;
+}
+
+// Helper: Sort pieces by position type and color
+function sortPiecesForMatrix(pieces, rows, cols, groupingEnabled = true) {
+  if (!pieces || pieces.length === 0) return [];
+
+  // First, categorize ALL pieces by corner/edge/center (always needed)
+  const corners = [];
+  const edges = [];
+  const centers = [];
+
+  for (const p of pieces) {
+    const neighborCount = countNeighbors(p, rows, cols);
+    if (neighborCount === 2) {
+      corners.push(p);
+    } else if (neighborCount === 3) {
+      edges.push(p);
+    } else if (neighborCount === 4) {
+      centers.push(p);
+    }
+  }
+
+  // Calculate dominant colors (3-color palettes) for sorting
+  const withColors = (arr) => arr.map(p => ({
+    piece: p,
+    colors: getDominantColors(p, 3)
+  }));
+
+  // Sort by color similarity (greedy nearest neighbor using 3-color palettes)
+  const sortByColorSimilarity = (arr) => {
+    if (arr.length <= 1) return arr.map(x => x.piece);
+
+    const sorted = [];
+    const remaining = [...arr];
+
+    // Start with first element
+    sorted.push(remaining.shift());
+
+    // Greedily pick nearest color palette
+    while (remaining.length > 0) {
+      const last = sorted[sorted.length - 1];
+      let minDist = Infinity;
+      let minIdx = 0;
+
+      for (let i = 0; i < remaining.length; i++) {
+        const dist = paletteDistance(last.colors, remaining[i].colors);
+        if (dist < minDist) {
+          minDist = dist;
+          minIdx = i;
+        }
+      }
+
+      sorted.push(remaining[minIdx]);
+      remaining.splice(minIdx, 1);
+    }
+
+    return sorted.map(x => x.piece);
+  };
+
+  let sortedPieces;
+
+  if (!groupingEnabled) {
+    // If grouping is disabled, sort ALL pieces by color only (mixed groups)
+    const allWithColors = withColors(pieces);
+    sortedPieces = sortByColorSimilarity(allWithColors);
+  } else {
+    // If grouping is enabled, sort each category separately then combine
+    const cornersWithColor = withColors(corners);
+    const edgesWithColor = withColors(edges);
+    const centersWithColor = withColors(centers);
+
+    const sortedCorners = sortByColorSimilarity(cornersWithColor);
+    const sortedEdges = sortByColorSimilarity(edgesWithColor);
+    const sortedCenters = sortByColorSimilarity(centersWithColor);
+
+    // Combine: corners first, then edges, then centers
+    sortedPieces = [...sortedCorners, ...sortedEdges, ...sortedCenters];
+  }
+
+  // Calculate group boundaries (indices where groups start/end in grouped mode)
+  const boundaries = {
+    cornerEnd: corners.length,
+    edgeEnd: corners.length + edges.length,
+    centerEnd: pieces.length
+  };
+
+  return { pieces: sortedPieces, boundaries };
+}
+
+export function drawAdjacencyMatrix(width, height, pieces) {
+  // Clear button position when entering this view (will be set if we successfully draw)
+  clearMatrixGroupingButtonPos();
+
+  if (!pieces || pieces.length === 0) {
+    push();
+    fill(100);
+    textAlign(CENTER, CENTER);
+    textSize(16);
+    text(t("noMatrixData") || "No piece data available", width / 2, height / 2);
+    pop();
+    return;
+  }
+
+  const rows = puzzleGrid.rows || 0;
+  const cols = puzzleGrid.cols || 0;
+
+  if (rows === 0 || cols === 0) {
+    push();
+    fill(100);
+    textAlign(CENTER, CENTER);
+    textSize(16);
+    text(t("noMatrixData") || "Grid not initialized", width / 2, height / 2);
+    pop();
+    return;
+  }
+
+  // Get current grouping state
+  const groupingEnabled = getMatrixGroupingEnabled();
+
+  // Sort pieces for matrix display
+  const sortResult = sortPiecesForMatrix(pieces, rows, cols, groupingEnabled);
+  const sortedPieces = sortResult.pieces;
+  const boundaries = sortResult.boundaries;
+  const n = sortedPieces.length;
+
+  // Check if order changed and start animation if needed
+  const newOrder = sortedPieces.map(p => p.index);
+  const oldOrder = matrixCurrentOrder.length > 0 ? matrixCurrentOrder : newOrder;
+
+  // Detect if order actually changed
+  const orderChanged = oldOrder.length !== newOrder.length || 
+                       oldOrder.some((idx, i) => idx !== newOrder[i]);
+
+  if (orderChanged && oldOrder.length === newOrder.length) {
+    // Start animation from old to new order
+    startMatrixAnimation(oldOrder, newOrder);
+  }
+
+  // Update current order
+  setMatrixCurrentOrder(newOrder);
+
+  // Get animation progress (0.0 = old positions, 1.0 = new positions)
+  const animProgress = getMatrixAnimationProgress();
+  const isAnimating = matrixAnimationState.animating;
+
+  // If animating, trigger continuous redraw
+  if (isAnimating) {
+    setTimeout(() => redraw(), 16); // ~60fps
+  }
+
+  // Calculate matrix layout - align with puzzle grid frame
+  const { originX, originY, W, H } = gridRectScaled(width, height);
+
+  const marginRight = 40;
+  const marginBottom = 80;
+  const availableWidth = W; // Use puzzle frame width
+  const availableHeight = height - originY - marginBottom;
+  const availableSize = Math.min(availableWidth, availableHeight);
+  const cellSize = Math.floor(availableSize / n);
+  const matrixSize = cellSize * n;
+  const startX = originX; // Align with puzzle grid frame left
+  const startY = originY; // Align with puzzle grid frame top
+
+  // Create mapping from piece index to current visual position (interpolated during animation)
+  const pieceIndexToVisualRow = new Map();
+  const pieceIndexToVisualCol = new Map();
+
+  if (isAnimating && animProgress < 1.0) {
+    // During animation: interpolate between old and new positions
+    const oldIndexToPos = new Map();
+    const newIndexToPos = new Map();
+
+    matrixAnimationState.oldOrder.forEach((pieceIdx, pos) => {
+      oldIndexToPos.set(pieceIdx, pos);
+    });
+    matrixAnimationState.newOrder.forEach((pieceIdx, pos) => {
+      newIndexToPos.set(pieceIdx, pos);
+    });
+
+    // Easing function (ease-in-out cubic)
+    const ease = (t) => {
+      return t < 0.5 
+        ? 4 * t * t * t 
+        : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    };
+
+    const easedProgress = ease(animProgress);
+
+    for (const pieceIdx of matrixAnimationState.newOrder) {
+      const oldPos = oldIndexToPos.get(pieceIdx) ?? newIndexToPos.get(pieceIdx);
+      const newPos = newIndexToPos.get(pieceIdx) ?? oldIndexToPos.get(pieceIdx);
+      const currentPos = oldPos + (newPos - oldPos) * easedProgress;
+      pieceIndexToVisualRow.set(pieceIdx, currentPos);
+      pieceIndexToVisualCol.set(pieceIdx, currentPos);
+    }
+  } else {
+    // No animation: use new order directly
+    newOrder.forEach((pieceIdx, pos) => {
+      pieceIndexToVisualRow.set(pieceIdx, pos);
+      pieceIndexToVisualCol.set(pieceIdx, pos);
+    });
+  }
+
+  // Helper function to get visual position (interpolated row/col during animation)
+  const getVisualRow = (logicalRow) => {
+    const piece = sortedPieces[logicalRow];
+    return pieceIndexToVisualRow.get(piece.index) ?? logicalRow;
+  };
+
+  const getVisualCol = (logicalCol) => {
+    const piece = sortedPieces[logicalCol];
+    return pieceIndexToVisualCol.get(piece.index) ?? logicalCol;
+  };
+
+  // Draw matrix background with subtle group backgrounds
+  push();
+  noStroke();
+
+  // Helper function to determine group for a piece based on its neighbor count
+  const getGroup = (idx) => {
+    const piece = sortedPieces[idx];
+    if (!piece) return 'center';
+    const neighborCount = countNeighbors(piece, rows, cols);
+    if (neighborCount === 2) return 'corner';
+    if (neighborCount === 3) return 'edge';
+    return 'center';
+  };
+
+  // Draw subtle background rectangles for each group block
+  for (let row = 0; row < n; row++) {
+    for (let col = 0; col < n; col++) {
+      const rowGroup = getGroup(row);
+      const colGroup = getGroup(col);
+
+      // Determine background tint based on group combination
+      let bgColor;
+      if (rowGroup === 'corner' && colGroup === 'corner') {
+        bgColor = color(255, 250, 245); // Warm white for corners
+      } else if (rowGroup === 'edge' && colGroup === 'edge') {
+        bgColor = color(245, 255, 250); // Cool white for edges
+      } else if (rowGroup === 'center' && colGroup === 'center') {
+        bgColor = color(250, 245, 255); // Purple tint for centers
+      } else {
+        bgColor = color(252, 252, 252); // Very light gray for mixed
+      }
+
+      fill(bgColor);
+      // Use visual positions for animation
+      const visualRow = getVisualRow(row);
+      const visualCol = getVisualCol(col);
+      const x = startX + visualCol * cellSize;
+      const y = startY + visualRow * cellSize;
+      rect(x, y, cellSize, cellSize);
+    }
+  }
+  pop();
+
+  // Get interaction matrix data
+  const interactionMatrix = getPieceInteractionMatrix();
+
+  // Find max interaction count for normalization
+  let maxInteractions = 0;
+  for (const fromIdx in interactionMatrix) {
+    for (const toIdx in interactionMatrix[fromIdx]) {
+      maxInteractions = Math.max(maxInteractions, interactionMatrix[fromIdx][toIdx]);
+    }
+  }
+
+  // Create index lookup for sorted pieces
+  const pieceIndexToMatrixPos = {};
+  for (let i = 0; i < sortedPieces.length; i++) {
+    pieceIndexToMatrixPos[sortedPieces[i].index] = i;
+  }
+
+  // Draw matrix cells with color based on interaction count
+  push();
+  noStroke();
+  for (let row = 0; row < n; row++) {
+    for (let col = 0; col < n; col++) {
+      const fromPiece = sortedPieces[row];
+      const toPiece = sortedPieces[col];
+      const fromIdx = fromPiece.index;
+      const toIdx = toPiece.index;
+
+      // Get interaction count
+      let interactionCount = 0;
+      if (interactionMatrix[fromIdx] && interactionMatrix[fromIdx][toIdx]) {
+        interactionCount = interactionMatrix[fromIdx][toIdx];
+      }
+
+      // Calculate color intensity (white to blue gradient)
+      let fillColor;
+      if (interactionCount === 0) {
+        fillColor = color(250, 250, 250); // Almost white for no interactions
+      } else {
+        const intensity = interactionCount / Math.max(1, maxInteractions);
+        // Blue gradient: light blue -> dark blue
+        const r = Math.round(255 - intensity * 200);
+        const g = Math.round(255 - intensity * 180);
+        const b = 255;
+        fillColor = color(r, g, b);
+      }
+
+      fill(fillColor);
+      // Use visual positions for animation
+      const visualRow = getVisualRow(row);
+      const visualCol = getVisualCol(col);
+      const x = startX + visualCol * cellSize;
+      const y = startY + visualRow * cellSize;
+      rect(x, y, cellSize, cellSize);
+
+      // Draw interaction count if > 0 (and cell is large enough)
+      if (interactionCount > 0 && cellSize >= 20) {
+        push();
+        fill(0, 0, 0, 180);
+        textSize(Math.max(8, Math.min(11, cellSize / 2.5)));
+        textAlign(CENTER, CENTER);
+        text(interactionCount, x + cellSize / 2, y + cellSize / 2);
+        pop();
+      }
+    }
+  }
+  pop();
+
+  // Draw grid lines with thicker lines at group boundaries (only when grouping enabled)
+  push();
+
+  for (let i = 0; i <= n; i++) {
+    // Determine if this is a group boundary (only relevant when grouping is enabled)
+    const isGroupBoundary = groupingEnabled && (i === 0 || i === n || i === boundaries.cornerEnd || i === boundaries.edgeEnd);
+
+    if (isGroupBoundary) {
+      stroke(160); // Light gray instead of dark (was 80)
+      strokeWeight(2.5);
+    } else if (i === 0 || i === n) {
+      // Outer border - always visible but lighter
+      stroke(160);
+      strokeWeight(2.5);
+    } else {
+      stroke(200); // Light gray for internal grid
+      strokeWeight(0.5);
+    }
+
+    // Vertical lines
+    line(startX + i * cellSize, startY, startX + i * cellSize, startY + matrixSize);
+    // Horizontal lines
+    line(startX, startY + i * cellSize, startX + matrixSize, startY + i * cellSize);
+  }
+  pop();
+
+  // Draw group labels on the sides with color bars (only when grouping is enabled)
+  if (groupingEnabled) {
+    const barWidth = 4;
+    const barOffset = 70; // Distance from matrix edge to color bar
+    const textOffset = 78; // Distance from matrix edge to text
+
+    push();
+
+    // Define group colors
+    const cornerColor = color(255, 180, 100); // Orange
+    const edgeColor = color(100, 200, 150);   // Green
+    const centerColor = color(150, 120, 255);  // Purple
+
+    // Row labels (left side) with color bars
+    textSize(12);
+    textAlign(RIGHT, CENTER);
+
+    if (boundaries.cornerEnd > 0) {
+      const cornerStart = startY;
+      const cornerHeight = boundaries.cornerEnd * cellSize;
+      const cornerMid = startY + cornerHeight / 2;
+
+      fill(cornerColor);
+      noStroke();
+      rect(startX - barOffset, cornerStart, barWidth, cornerHeight);
+
+      fill(100);
+      text(t("matrixGroupCorners") || "Corners", startX - textOffset, cornerMid);
+    }
+    if (boundaries.edgeEnd > boundaries.cornerEnd) {
+      const edgeStart = startY + boundaries.cornerEnd * cellSize;
+      const edgeHeight = (boundaries.edgeEnd - boundaries.cornerEnd) * cellSize;
+      const edgeMid = edgeStart + edgeHeight / 2;
+
+      fill(edgeColor);
+      noStroke();
+      rect(startX - barOffset, edgeStart, barWidth, edgeHeight);
+
+      fill(100);
+      text(t("matrixGroupEdges") || "Edges", startX - textOffset, edgeMid);
+    }
+    if (boundaries.centerEnd > boundaries.edgeEnd) {
+      const centerStart = startY + boundaries.edgeEnd * cellSize;
+      const centerHeight = (boundaries.centerEnd - boundaries.edgeEnd) * cellSize;
+      const centerMid = centerStart + centerHeight / 2;
+
+      fill(centerColor);
+      noStroke();
+      rect(startX - barOffset, centerStart, barWidth, centerHeight);
+
+      fill(100);
+      text(t("matrixGroupCenters") || "Centers", startX - textOffset, centerMid);
+    }
+
+    // Column labels (top) with color bars
+    const topBarOffset = 80; // Distance from matrix top to color bar
+    const topTextOffset = 86; // Distance from matrix top to text
+
+    textSize(12);
+    textAlign(CENTER, BOTTOM);
+
+    if (boundaries.cornerEnd > 0) {
+      const cornerStart = startX;
+      const cornerWidth = boundaries.cornerEnd * cellSize;
+      const cornerMid = startX + cornerWidth / 2;
+
+      fill(cornerColor);
+      noStroke();
+      rect(cornerStart, startY - topBarOffset, cornerWidth, barWidth);
+
+      fill(100);
+      text(t("matrixGroupCorners") || "Corners", cornerMid, startY - topTextOffset);
+    }
+    if (boundaries.edgeEnd > boundaries.cornerEnd) {
+      const edgeStart = startX + boundaries.cornerEnd * cellSize;
+      const edgeWidth = (boundaries.edgeEnd - boundaries.cornerEnd) * cellSize;
+      const edgeMid = edgeStart + edgeWidth / 2;
+
+      fill(edgeColor);
+      noStroke();
+      rect(edgeStart, startY - topBarOffset, edgeWidth, barWidth);
+
+      fill(100);
+      text(t("matrixGroupEdges") || "Edges", edgeMid, startY - topTextOffset);
+    }
+    if (boundaries.centerEnd > boundaries.edgeEnd) {
+      const centerStart = startX + boundaries.edgeEnd * cellSize;
+      const centerWidth = (boundaries.centerEnd - boundaries.edgeEnd) * cellSize;
+      const centerMid = centerStart + centerWidth / 2;
+
+      fill(centerColor);
+      noStroke();
+      rect(centerStart, startY - topBarOffset, centerWidth, barWidth);
+
+      fill(100);
+      text(t("matrixGroupCenters") || "Centers", centerMid, startY - topTextOffset);
+    }
+
+    pop();
+  }
+
+  // Draw row/column labels (piece indices) with 3-color palettes
+  push();
+  fill(80);
+  const labelTextSize = Math.max(8, Math.min(12, cellSize / 3));
+  textSize(labelTextSize);
+  textAlign(CENTER, CENTER);
+
+  const colorSquareSize = Math.max(6, Math.min(10, cellSize / 2.5));
+  const squareGap = 1;
+  const totalPaletteWidth = colorSquareSize * 3 + squareGap * 2;
+  const totalPaletteHeight = colorSquareSize * 3 + squareGap * 2;
+  const squareOffset = labelTextSize + 6;
+
+  // Reset hover state
+  let hoveredPiece = null;
+  let hoveredIsRow = false;
+  let hoveredX = 0;
+  let hoveredY = 0;
+
+  for (let i = 0; i < n; i++) {
+    const piece = sortedPieces[i];
+    const label = `${piece.index}`;
+    const pieceColors = getDominantColors(piece, 3);
+
+    // Use visual positions for animation
+    const visualPos = getVisualCol(i); // same for both row and col
+
+    // Column labels (top) with 3-color palette (vertical stack)
+    const colLabelX = startX + visualPos * cellSize + cellSize / 2;
+    const colLabelY = startY - 15;
+    const colPaletteX = colLabelX - colorSquareSize / 2;
+    const colPaletteStartY = colLabelY - squareOffset - totalPaletteHeight;
+
+    // Draw 3 color squares for column (stacked vertically)
+    for (let c = 0; c < 3; c++) {
+      const squareY = colPaletteStartY + c * (colorSquareSize + squareGap);
+      push();
+      fill(pieceColors[c].r, pieceColors[c].g, pieceColors[c].b);
+      stroke(100);
+      strokeWeight(0.5);
+      rect(colPaletteX, squareY, colorSquareSize, colorSquareSize);
+      pop();
+    }
+
+    // Draw label
+    text(label, colLabelX, colLabelY);
+
+    // Check hover for column palette (any of the 3 squares)
+    if (mouseX >= colPaletteX && mouseX <= colPaletteX + colorSquareSize &&
+        mouseY >= colPaletteStartY && mouseY <= colPaletteStartY + totalPaletteHeight) {
+      hoveredPiece = piece;
+      hoveredIsRow = false;
+      hoveredX = colLabelX;
+      hoveredY = colPaletteStartY + totalPaletteHeight / 2;
+    }
+
+    // Row labels (left) with 3-color palette
+    const rowLabelX = startX - 15;
+    const rowLabelY = startY + visualPos * cellSize + cellSize / 2;
+    const rowPaletteStartX = rowLabelX - squareOffset - totalPaletteWidth;
+    const rowPaletteY = rowLabelY - colorSquareSize / 2;
+
+    // Draw 3 color squares for row
+    for (let c = 0; c < 3; c++) {
+      const squareX = rowPaletteStartX + c * (colorSquareSize + squareGap);
+      push();
+      fill(pieceColors[c].r, pieceColors[c].g, pieceColors[c].b);
+      stroke(100);
+      strokeWeight(0.5);
+      rect(squareX, rowPaletteY, colorSquareSize, colorSquareSize);
+      pop();
+    }
+
+    // Draw label
+    text(label, rowLabelX, rowLabelY);
+
+    // Check hover for row palette (any of the 3 squares)
+    if (mouseX >= rowPaletteStartX && mouseX <= rowPaletteStartX + totalPaletteWidth &&
+        mouseY >= rowPaletteY && mouseY <= rowPaletteY + colorSquareSize) {
+      hoveredPiece = piece;
+      hoveredIsRow = true;
+      hoveredX = rowLabelX;
+      hoveredY = rowPaletteY + colorSquareSize / 2;
+    }
+  }
+  pop();
+
+  // Check if hovering over a matrix cell
+  let cellRowIdx = null;
+  let cellColIdx = null;
+  if (mouseX >= startX && mouseX <= startX + matrixSize &&
+      mouseY >= startY && mouseY <= startY + matrixSize) {
+    cellColIdx = Math.floor((mouseX - startX) / cellSize);
+    cellRowIdx = Math.floor((mouseY - startY) / cellSize);
+
+    if (cellColIdx < 0 || cellColIdx >= n) cellColIdx = null;
+    if (cellRowIdx < 0 || cellRowIdx >= n) cellRowIdx = null;
+  }
+
+  // Update hover state
+  setMatrixHoverState(hoveredPiece, hoveredIsRow, hoveredX, hoveredY, cellRowIdx, cellColIdx);
+
+  // Draw RGB color space map FIRST so it doesn't cover hover preview or buttons
+  drawRGBColorMap(width, height, sortedPieces, matrixSize, startX, startY, hoveredPiece, hoveredIsRow);
+
+  // Draw enlarged 3-color palette preview on hover (vertical layout with table)
+  if (hoveredPiece) {
+    const pieceColors = getDominantColors(hoveredPiece, 3);
+    const previewSquareSize = Math.max(18, colorSquareSize * 2.5);
+    const previewGap = 3;
+    const rgbTextWidth = 100; // Width for RGB text column
+    const rowHeight = previewSquareSize + previewGap;
+    const previewWidth = previewSquareSize + 12 + rgbTextWidth; // square + gap + text
+    const previewHeight = rowHeight * 3 - previewGap + 8; // 3 rows total + padding
+    const padding = 15; // Minimum distance from canvas edges
+
+    // Position preview near cursor but offset to not obscure
+    let previewX = hoveredX + 25;
+    let previewY = hoveredY - previewHeight / 2;
+
+    // Keep preview within bounds with proper padding
+    if (previewX + previewWidth > width - padding) {
+      previewX = hoveredX - previewWidth - 25;
+    }
+    if (previewX < padding) {
+      previewX = padding;
+    }
+    if (previewY < padding) {
+      previewY = padding;
+    }
+    if (previewY + previewHeight > height - padding) {
+      previewY = height - previewHeight - padding;
+    }
+
+    push();
+    // Background box with shadow
+    fill(0, 0, 0, 40);
+    noStroke();
+    rect(previewX + 3, previewY + 3, previewWidth, previewHeight, 4);
+
+    fill(255, 255, 255, 250);
+    stroke(100);
+    strokeWeight(1);
+    rect(previewX, previewY, previewWidth, previewHeight, 4);
+
+    // Draw 3 rows: color square + RGB text
+    for (let c = 0; c < 3; c++) {
+      const squareY = previewY + c * rowHeight + 6;
+      const squareX = previewX + 6;
+
+      // Draw color square
+      fill(pieceColors[c].r, pieceColors[c].g, pieceColors[c].b);
+      stroke(60);
+      strokeWeight(2);
+      rect(squareX, squareY, previewSquareSize, previewSquareSize, 2);
+
+      // Draw RGB text in table format (aligned)
+      const textX = squareX + previewSquareSize + 10;
+      const textY = squareY + previewSquareSize / 2;
+
+      noStroke();
+      fill(80);
+      textSize(10);
+      textAlign(LEFT, CENTER);
+
+      const rgbText = `R: ${String(pieceColors[c].r).padStart(3, ' ')}  G: ${String(pieceColors[c].g).padStart(3, ' ')}  B: ${String(pieceColors[c].b).padStart(3, ' ')}`;
+      text(rgbText, textX, textY);
+    }
+    pop();
+  }
+
+  // Draw color legend
+  const legendW = 180;
+  const legendH = 18;
+  const legendX = width - legendW - 40;
+  const legendY = height - 55;
+
+  push();
+  // Draw gradient bar
+  for (let i = 0; i < legendW; i++) {
+    const t = i / legendW;
+    const r = Math.round(255 - t * 200);
+    const g = Math.round(255 - t * 180);
+    const b = 255;
+    stroke(r, g, b);
+    line(legendX + i, legendY, legendX + i, legendY + legendH);
+  }
+  // Border
+  noFill();
+  stroke(100);
+  strokeWeight(1);
+  rect(legendX, legendY, legendW, legendH);
+  pop();
+
+  // Legend labels
+  push();
+  fill(80);
+  textSize(10);
+  textAlign(LEFT, CENTER);
+  text("0", legendX - 15, legendY + legendH / 2);
+  textAlign(RIGHT, CENTER);
+  text(maxInteractions > 0 ? maxInteractions : "Max", legendX + legendW + 30, legendY + legendH / 2);
+  textAlign(CENTER, TOP);
+  text(t("matrixInteractions") || "Interactions", legendX + legendW / 2, legendY + legendH + 4);
+  pop();
+
+  // Draw description
+  push();
+  fill(80);
+  textSize(11);
+  textAlign(LEFT, TOP);
+  const descText = groupingEnabled 
+    ? (t("matrixLegend") || "Rows & Columns: Piece order (corners → edges → centers, sorted by color)")
+    : (t("matrixLegendNoGroups") || "Rows & Columns: Piece order (sorted by color only)");
+  text(descText, 20, height - 35);
+  pop();
+
+  // Draw grouping toggle button
+  const buttonW = 180;
+  const buttonH = 30;
+  const buttonX = 20;
+  const buttonY = height - 70;
+  const buttonText = groupingEnabled ? t("matrixGroupingEnabled") : t("matrixGroupingDisabled");
+
+  push();
+  // Check if mouse is over button
+  const isHovered = mouseX >= buttonX && mouseX <= buttonX + buttonW &&
+                     mouseY >= buttonY && mouseY <= buttonY + buttonH;
+
+  // Button background
+  if (isHovered) {
+    fill(70, 130, 220);
+    cursor('pointer');
+  } else {
+    fill(100, 150, 230);
+  }
+  stroke(60);
+  strokeWeight(2);
+  rect(buttonX, buttonY, buttonW, buttonH, 5);
+
+  // Button text
+  fill(255);
+  noStroke();
+  textSize(12);
+  textAlign(CENTER, CENTER);
+  text(buttonText, buttonX + buttonW / 2, buttonY + buttonH / 2);
+  pop();
+
+  // Store button position for click detection
+  setMatrixGroupingButtonPos(buttonX, buttonY, buttonW, buttonH);
+}
+
+// Helper function: Draw RGB color space map showing all puzzle piece colors
+function drawRGBColorMap(width, height, sortedPieces, matrixSize, matrixStartX, matrixStartY, hoveredPiece, hoveredIsRow) {
+  // Calculate map dimensions - single larger map
+  const mapSize = 200;
+  const mapX = matrixStartX + matrixSize + 40;
+  const mapY = matrixStartY + (matrixSize - mapSize) / 2;
+
+  // Check if there's enough space
+  if (mapX + mapSize > width - 20) {
+    return; // Not enough space, skip drawing
+  }
+
+  // Collect all dominant colors from all pieces
+  const allColors = [];
+  for (const piece of sortedPieces) {
+    const colors = getDominantColors(piece, 3);
+    for (const c of colors) {
+      allColors.push(c);
+    }
+  }
+
+  if (allColors.length === 0) return;
+
+  // Find RGB bounds (min/max values)
+  let minR = 255, maxR = 0;
+  let minG = 255, maxG = 0;
+  let minB = 255, maxB = 0;
+
+  for (const c of allColors) {
+    minR = Math.min(minR, c.r);
+    maxR = Math.max(maxR, c.r);
+    minG = Math.min(minG, c.g);
+    maxG = Math.max(maxG, c.g);
+    minB = Math.min(minB, c.b);
+    maxB = Math.max(maxB, c.b);
+  }
+
+  // Add some padding to bounds
+  const padR = Math.max(10, (maxR - minR) * 0.1);
+  const padG = Math.max(10, (maxG - minG) * 0.1);
+  const padB = Math.max(10, (maxB - minB) * 0.1);
+  minR = Math.max(0, minR - padR);
+  maxR = Math.min(255, maxR + padR);
+  minG = Math.max(0, minG - padG);
+  maxG = Math.min(255, maxG + padG);
+  minB = Math.max(0, minB - padB);
+  maxB = Math.min(255, maxB + padB);
+
+  // Get colors to highlight based on hover state
+  let highlightColors = [];
+  let rowColors = [];
+  let colColors = [];
+
+  const hover = matrixHoverState;
+  if (hover) {
+    // Check if hovering over a cell
+    if (hover.cellRow !== null && hover.cellCol !== null) {
+      // Hovering over a cell - show both row and column colors
+      rowColors = getDominantColors(sortedPieces[hover.cellRow], 3);
+      colColors = getDominantColors(sortedPieces[hover.cellCol], 3);
+    } else if (hover.piece) {
+      // Hovering over row/col label - show just those 3 colors
+      highlightColors = getDominantColors(hover.piece, 3);
+    }
+  }
+
+  push();
+
+  // Determine which projection to show
+  const projections = [
+    { name: t("colorProjectionRedGreen"), axis1: t("colorRed"), axis2: t("colorGreen"), 
+      getX: (c) => map(c.r, minR, maxR, 10, mapSize - 10),
+      getY: (c) => map(c.g, minG, maxG, mapSize - 10, 10) },
+    { name: t("colorProjectionRedBlue"), axis1: t("colorRed"), axis2: t("colorBlue"),
+      getX: (c) => map(c.r, minR, maxR, 10, mapSize - 10),
+      getY: (c) => map(c.b, minB, maxB, mapSize - 10, 10) },
+    { name: t("colorProjectionGreenBlue"), axis1: t("colorGreen"), axis2: t("colorBlue"),
+      getX: (c) => map(c.g, minG, maxG, 10, mapSize - 10),
+      getY: (c) => map(c.b, minB, maxB, mapSize - 10, 10) }
+  ];
+
+  const currentProj = projections[rgbMapProjection];
+
+  // Draw main title with navigation
+  fill(80);
+  noStroke();
+  textSize(11);
+  textAlign(CENTER, BOTTOM);
+  text(t("rgbColorSpace"), mapX + mapSize / 2, mapY - 35);
+
+  // Draw navigation buttons - higher and larger
+  const navY = mapY - 25;
+  const buttonSize = 22;
+  const leftButtonX = mapX + mapSize / 2 - 50;
+  const rightButtonX = mapX + mapSize / 2 + 28;
+
+  // Left arrow button
+  fill(240);
+  stroke(100);
+  strokeWeight(1);
+  rect(leftButtonX, navY, buttonSize, buttonSize, 4);
+
+  // Check if hovering over left button
+  const hoverLeft = mouseX >= leftButtonX && mouseX <= leftButtonX + buttonSize &&
+                     mouseY >= navY && mouseY <= navY + buttonSize;
+  if (hoverLeft) {
+    fill(220);
+    rect(leftButtonX, navY, buttonSize, buttonSize, 4);
+  }
+
+  fill(60);
+  noStroke();
+  textSize(14);
+  textAlign(CENTER, CENTER);
+  text("◀", leftButtonX + buttonSize / 2, navY + buttonSize / 2);
+
+  // Projection name
+  textSize(11);
+  fill(100);
+  text(currentProj.name, mapX + mapSize / 2, navY + buttonSize / 2 + 1);
+
+  // Right arrow button
+  fill(240);
+  stroke(100);
+  strokeWeight(1);
+  rect(rightButtonX, navY, buttonSize, buttonSize, 4);
+
+  // Check if hovering over right button
+  const hoverRight = mouseX >= rightButtonX && mouseX <= rightButtonX + buttonSize &&
+                      mouseY >= navY && mouseY <= navY + buttonSize;
+  if (hoverRight) {
+    fill(220);
+    rect(rightButtonX, navY, buttonSize, buttonSize, 4);
+  }
+
+  fill(60);
+  noStroke();
+  textSize(14);
+  textAlign(CENTER, CENTER);
+  text("▶", rightButtonX + buttonSize / 2, navY + buttonSize / 2);
+
+  // Store button positions for global click handler
+  setRGBButtonPositions(leftButtonX, navY, rightButtonX, navY, buttonSize);
+
+  // Background box
+  fill(255);
+  stroke(100);
+  strokeWeight(1);
+  rect(mapX, mapY, mapSize, mapSize, 4);
+
+  // Axis labels
+  textSize(9);
+  fill(100);
+  noStroke();
+  textAlign(CENTER, TOP);
+  text(currentProj.axis1 + " →", mapX + mapSize / 2, mapY + mapSize + 3);
+  textAlign(RIGHT, CENTER);
+  push();
+  translate(mapX - 5, mapY + mapSize / 2);
+  rotate(-PI / 2);
+  text("← " + currentProj.axis2, 0, 0);
+  pop();
+
+  // Draw all color points
+  noStroke();
+  for (const c of allColors) {
+    const px = mapX + currentProj.getX(c);
+    const py = mapY + currentProj.getY(c);
+
+    fill(c.r, c.g, c.b, 150);
+    circle(px, py, 5);
+  }
+
+  // Draw highlighted colors on top
+  if (highlightColors.length > 0) {
+    // Single highlight (row or column label hover) - use circles
+    for (const c of highlightColors) {
+      const px = mapX + currentProj.getX(c);
+      const py = mapY + currentProj.getY(c);
+
+      // Glow
+      fill(255, 255, 0, 80);
+      noStroke();
+      circle(px, py, 16);
+
+      // Ring
+      noFill();
+      stroke(255, 200, 0);
+      strokeWeight(2);
+      circle(px, py, 12);
+
+      // Center point
+      fill(c.r, c.g, c.b);
+      noStroke();
+      circle(px, py, 6);
+    }
+  } else if (rowColors.length > 0 || colColors.length > 0) {
+    // Cell hover - show both row (circles) and column (squares)
+
+    // Draw row colors with circles
+    for (const c of rowColors) {
+      const px = mapX + currentProj.getX(c);
+      const py = mapY + currentProj.getY(c);
+
+      // Glow
+      fill(255, 100, 100, 80);
+      noStroke();
+      circle(px, py, 16);
+
+      // Ring
+      noFill();
+      stroke(255, 80, 80);
+      strokeWeight(2);
+      circle(px, py, 12);
+
+      // Center
+      fill(c.r, c.g, c.b);
+      noStroke();
+      circle(px, py, 6);
+    }
+
+    // Draw column colors with squares
+    for (const c of colColors) {
+      const px = mapX + currentProj.getX(c);
+      const py = mapY + currentProj.getY(c);
+
+      // Glow
+      fill(100, 100, 255, 80);
+      noStroke();
+      rectMode(CENTER);
+      rect(px, py, 16, 16);
+
+      // Border
+      noFill();
+      stroke(80, 80, 255);
+      strokeWeight(2);
+      rect(px, py, 12, 12);
+
+      // Center
+      fill(c.r, c.g, c.b);
+      noStroke();
+      rect(px, py, 6, 6);
+      rectMode(CORNER);
+    }
+  }
+
+  // Draw legend for marker shapes
+  const legendY = mapY + mapSize + 20;
+  textSize(9);
+  fill(100);
+  textAlign(LEFT, TOP);
+
+  // Row (circle) indicator
+  fill(255, 80, 80, 100);
+  noStroke();
+  circle(mapX + 5, legendY + 5, 10);
+  noFill();
+  stroke(255, 80, 80);
+  strokeWeight(1.5);
+  circle(mapX + 5, legendY + 5, 10);
+
+  fill(80);
+  noStroke();
+  text(t("colorMapRow"), mapX + 15, legendY + 1);
+
+  // Column (square) indicator
+  fill(100, 100, 255, 100);
+  noStroke();
+  rectMode(CENTER);
+  rect(mapX + 65, legendY + 5, 10, 10);
+  noFill();
+  stroke(80, 80, 255);
+  strokeWeight(1.5);
+  rect(mapX + 65, legendY + 5, 10, 10);
+  rectMode(CORNER);
+
+  fill(80);
+  noStroke();
+  text(t("colorMapColumn"), mapX + 75, legendY + 1);
 
   pop();
 }
