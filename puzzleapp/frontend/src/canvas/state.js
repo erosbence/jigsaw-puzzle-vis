@@ -27,8 +27,27 @@ export const gameSettings = { rotationEnabled: false, rotationPercentage: 100 };
 
 // Zoom settings
 export const viewSettings = { 
-  zoomEnabled: false      // Is zoom mode active
+  zoomEnabled: false,      // Is zoom mode active
+  imageHintEnabled: false  // Show faded image overlay on grid
 };
+
+export function setImageHintEnabled(enabled) {
+  viewSettings.imageHintEnabled = enabled;
+}
+
+// Completion celebration state
+export const completionState = {
+  isComplete: false,      // Is puzzle solved
+  showingComplete: false  // Is showing complete image
+};
+
+export function setPuzzleComplete(complete) {
+  completionState.isComplete = complete;
+}
+
+export function setShowingComplete(showing) {
+  completionState.showingComplete = showing;
+}
 
 // Hover piece for rotation (mouse wheel control)
 export let hoverPiece = null;
@@ -123,7 +142,13 @@ export function getMatrixAnimationProgress() {
   return progress;
 }
 
-export function resetScene() { pieces = []; groups = []; puzzleGrid = { rows: 0, cols: 0 }; }
+export function resetScene() { 
+  pieces = []; 
+  groups = []; 
+  puzzleGrid = { rows: 0, cols: 0 }; 
+  completionState.isComplete = false;
+  completionState.showingComplete = false;
+}
 export function setPuzzleMeta(meta) { puzzleMeta = meta; }
 export function setPuzzleGrid(rows, cols) { puzzleGrid = { rows, cols }; }
 export function setCanvasSize(w, h) { bounds.w = w; bounds.h = h; }

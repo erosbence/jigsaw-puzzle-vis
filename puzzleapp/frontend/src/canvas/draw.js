@@ -297,6 +297,134 @@ function seismicColor(t) {
   ];
 }
 
+// Perceptually uniform sequential colormaps
+function viridisColor(t) {
+  const clamped = Math.max(0, Math.min(1, t));
+  // Viridis colormap approximation (purple → blue → teal → green → yellow)
+  const colors = [
+    [68, 1, 84],      // t=0.0 dark purple
+    [59, 82, 139],    // t=0.25 blue
+    [33, 145, 140],   // t=0.5 teal
+    [94, 201, 98],    // t=0.75 green
+    [253, 231, 37]    // t=1.0 yellow
+  ];
+  const idx = clamped * (colors.length - 1);
+  const i = Math.floor(idx);
+  const f = idx - i;
+  if (i >= colors.length - 1) return colors[colors.length - 1];
+  const c1 = colors[i];
+  const c2 = colors[i + 1];
+  return [
+    Math.round(c1[0] + (c2[0] - c1[0]) * f),
+    Math.round(c1[1] + (c2[1] - c1[1]) * f),
+    Math.round(c1[2] + (c2[2] - c1[2]) * f)
+  ];
+}
+
+function plasmaColor(t) {
+  const clamped = Math.max(0, Math.min(1, t));
+  // Plasma colormap (dark blue → purple → pink → orange → yellow)
+  const colors = [
+    [13, 8, 135],     // t=0.0 dark blue
+    [126, 3, 168],    // t=0.25 purple
+    [204, 71, 120],   // t=0.5 pink
+    [248, 149, 64],   // t=0.75 orange
+    [252, 253, 191]   // t=1.0 pale yellow
+  ];
+  const idx = clamped * (colors.length - 1);
+  const i = Math.floor(idx);
+  const f = idx - i;
+  if (i >= colors.length - 1) return colors[colors.length - 1];
+  const c1 = colors[i];
+  const c2 = colors[i + 1];
+  return [
+    Math.round(c1[0] + (c2[0] - c1[0]) * f),
+    Math.round(c1[1] + (c2[1] - c1[1]) * f),
+    Math.round(c1[2] + (c2[2] - c1[2]) * f)
+  ];
+}
+
+function infernoColor(t) {
+  const clamped = Math.max(0, Math.min(1, t));
+  // Inferno colormap (black → dark purple → red → orange → yellow)
+  const colors = [
+    [0, 0, 4],        // t=0.0 black
+    [87, 16, 110],    // t=0.25 dark purple
+    [188, 55, 84],    // t=0.5 red
+    [249, 142, 9],    // t=0.75 orange
+    [252, 255, 164]   // t=1.0 pale yellow
+  ];
+  const idx = clamped * (colors.length - 1);
+  const i = Math.floor(idx);
+  const f = idx - i;
+  if (i >= colors.length - 1) return colors[colors.length - 1];
+  const c1 = colors[i];
+  const c2 = colors[i + 1];
+  return [
+    Math.round(c1[0] + (c2[0] - c1[0]) * f),
+    Math.round(c1[1] + (c2[1] - c1[1]) * f),
+    Math.round(c1[2] + (c2[2] - c1[2]) * f)
+  ];
+}
+
+function magmaColor(t) {
+  const clamped = Math.max(0, Math.min(1, t));
+  // Magma colormap (black → dark purple → magenta → orange → pale yellow)
+  const colors = [
+    [0, 0, 4],        // t=0.0 black
+    [81, 18, 124],    // t=0.25 dark purple
+    [183, 55, 121],   // t=0.5 magenta
+    [251, 136, 97],   // t=0.75 orange/salmon
+    [252, 253, 191]   // t=1.0 pale yellow
+  ];
+  const idx = clamped * (colors.length - 1);
+  const i = Math.floor(idx);
+  const f = idx - i;
+  if (i >= colors.length - 1) return colors[colors.length - 1];
+  const c1 = colors[i];
+  const c2 = colors[i + 1];
+  return [
+    Math.round(c1[0] + (c2[0] - c1[0]) * f),
+    Math.round(c1[1] + (c2[1] - c1[1]) * f),
+    Math.round(c1[2] + (c2[2] - c1[2]) * f)
+  ];
+}
+
+function cividisColor(t) {
+  const clamped = Math.max(0, Math.min(1, t));
+  // Cividis colormap (dark blue → gray/green → yellow) - optimized for color vision deficiency
+  const colors = [
+    [0, 32, 77],      // t=0.0 dark blue
+    [61, 92, 122],    // t=0.25 blue-gray
+    [122, 134, 104],  // t=0.5 gray-green
+    [194, 175, 88],   // t=0.75 olive/yellow-green
+    [253, 231, 37]    // t=1.0 yellow
+  ];
+  const idx = clamped * (colors.length - 1);
+  const i = Math.floor(idx);
+  const f = idx - i;
+  if (i >= colors.length - 1) return colors[colors.length - 1];
+  const c1 = colors[i];
+  const c2 = colors[i + 1];
+  return [
+    Math.round(c1[0] + (c2[0] - c1[0]) * f),
+    Math.round(c1[1] + (c2[1] - c1[1]) * f),
+    Math.round(c1[2] + (c2[2] - c1[2]) * f)
+  ];
+}
+
+// Helper function to get the appropriate colormap function
+function getDashboardColorFunction(colormapName) {
+  switch (colormapName) {
+    case 'viridis': return viridisColor;
+    case 'plasma': return plasmaColor;
+    case 'inferno': return infernoColor;
+    case 'magma': return magmaColor;
+    case 'cividis': return cividisColor;
+    default: return viridisColor; // fallback
+  }
+}
+
 function formatClock(ms) {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(total / 3600);
@@ -426,22 +554,46 @@ export function drawGrabPoints(width, height, pieces) {
   }
 }
 
-// Time-based color gradient: blue → green → yellow → red
+// Time-based color gradient: Viridis color scheme
+// Viridis is a perceptually uniform color scheme: dark purple → blue → teal → green → yellow
 function timeColor(t) {
   const clamped = Math.max(0, Math.min(1, t));
-  // Blue (0,0,255) → Green (0,255,0) → Yellow (255,255,0) → Red (255,0,0)
-  if (clamped < 0.33) {
-    // Blue → Green
-    const k = clamped / 0.33;
-    return [0, Math.round(255 * k), Math.round(255 * (1 - k))];
-  } else if (clamped < 0.66) {
-    // Green → Yellow
-    const k = (clamped - 0.33) / 0.33;
-    return [Math.round(255 * k), 255, 0];
+
+  // Viridis color map approximation (5 key colors)
+  // Dark purple (68,1,84) → Blue (59,82,139) → Teal (33,145,140) → Green (94,201,98) → Yellow (253,231,37)
+
+  if (clamped < 0.25) {
+    // Dark purple → Blue
+    const k = clamped / 0.25;
+    return [
+      Math.round(68 + (59 - 68) * k),
+      Math.round(1 + (82 - 1) * k),
+      Math.round(84 + (139 - 84) * k)
+    ];
+  } else if (clamped < 0.5) {
+    // Blue → Teal
+    const k = (clamped - 0.25) / 0.25;
+    return [
+      Math.round(59 + (33 - 59) * k),
+      Math.round(82 + (145 - 82) * k),
+      Math.round(139 + (140 - 139) * k)
+    ];
+  } else if (clamped < 0.75) {
+    // Teal → Green
+    const k = (clamped - 0.5) / 0.25;
+    return [
+      Math.round(33 + (94 - 33) * k),
+      Math.round(145 + (201 - 145) * k),
+      Math.round(140 + (98 - 140) * k)
+    ];
   } else {
-    // Yellow → Red
-    const k = (clamped - 0.66) / 0.34;
-    return [255, Math.round(255 * (1 - k)), 0];
+    // Green → Yellow
+    const k = (clamped - 0.75) / 0.25;
+    return [
+      Math.round(94 + (253 - 94) * k),
+      Math.round(201 + (231 - 201) * k),
+      Math.round(98 + (37 - 98) * k)
+    ];
   }
 }
 
@@ -639,16 +791,16 @@ export function drawMovementPaths(width, height, pieces) {
       const [r, g, b] = timeColor(station.time);
 
       if (station.isFirst) {
-        // First station: square (blue) - larger size
+        // First station: square (Viridis dark purple) - larger size
         push();
-        fill(0, 0, 255, 180);
+        fill(68, 1, 84, 180);
         stroke(255, 255, 255, 200);
         strokeWeight(2);
         rectMode(CENTER);
         rect(station.x, station.y, 14, 14);
         pop();
       } else if (station.isLast) {
-        // Last station: star (red) - larger size
+        // Last station: star (red for visibility) - larger size
         drawStar(station.x, station.y, 8, [255, 0, 0], 180);
         push();
         noFill();
@@ -694,6 +846,45 @@ export function drawMovementPaths(width, height, pieces) {
   // SVG export generates its own legend in buildMovementPathsSvg (controls.js)
 }
 
+// Helper: Get or create cached outline version of piece
+// This pre-renders the piece with its outline into an offscreen buffer
+// Dramatically improves performance by reducing 5 image() calls to just 1
+function getOrCreateOutlineCache(piece, outlineWidth) {
+  // Include size in cache key since sw/sh are dynamic (based on pieceScale)
+  const sw = piece.sw, sh = piece.sh;
+  const cacheKey = `_outlineCache_${outlineWidth}_${sw}_${sh}`;
+
+  // Return cached version if available and size matches
+  if (piece[cacheKey]) {
+    return piece[cacheKey];
+  }
+
+  // Create offscreen graphics buffer
+  const r = Math.ceil(outlineWidth);
+
+  // Need extra padding for the outline offset
+  const buffer = createGraphics(sw + r * 2, sh + r * 2);
+  buffer.clear();
+
+  // Draw outline (4-directional offset)
+  buffer.push();
+  buffer.noStroke();
+  buffer.tint(0, 0, 0, 180);
+  buffer.image(piece.img, r - r, r, sw, sh);  // left
+  buffer.image(piece.img, r + r, r, sw, sh);  // right
+  buffer.image(piece.img, r, r - r, sw, sh);  // top
+  buffer.image(piece.img, r, r + r, sw, sh);  // bottom
+  buffer.noTint();
+  buffer.pop();
+
+  // Draw the piece itself on top
+  buffer.image(piece.img, r, r, sw, sh);
+
+  // Cache and return
+  piece[cacheKey] = buffer;
+  return buffer;
+}
+
 export function drawPiece(piece, st) {
   const sw = piece.sw, sh = piece.sh;
   const rot = piece.rotation || 0;
@@ -709,18 +900,25 @@ export function drawPiece(piece, st) {
     translate(piece.x, piece.y);
   }
 
+  // Decide which image to use
+  let imgToRender = piece.img;
+  let offsetX = 0, offsetY = 0;
+  let renderWidth = sw;
+  let renderHeight = sh;
+
   if (st.outline) {
-    const r = Math.max(1, st.outlineW);
-    push(); noStroke(); tint(0,0,0,200);
-    for (let dx=-r; dx<=r; dx++)
-      for (let dy=-r; dy<=r; dy++) {
-        if (!dx && !dy) continue;
-        const man = Math.abs(dx) + Math.abs(dy);
-        if (man === r || (r > 1 && man >= r)) image(piece.img, dx, dy, sw, sh);
-      }
-    noTint(); pop();
+    // Use cached outline version (pre-rendered, much faster!)
+    const cached = getOrCreateOutlineCache(piece, st.outlineW || 1);
+    imgToRender = cached;
+    const r = Math.ceil(st.outlineW || 1);
+    offsetX = -r;
+    offsetY = -r;
+    // Cached image is larger (includes outline padding)
+    renderWidth = sw + r * 2;
+    renderHeight = sh + r * 2;
   }
 
+  // Render with or without shadow (always specify explicit size)
   if (st.shadow) {
     const k = st.shadowI / 100;
     push();
@@ -728,10 +926,10 @@ export function drawPiece(piece, st) {
     drawingContext.shadowBlur = 6 + Math.round(10 * k);
     drawingContext.shadowOffsetX = 2 + Math.round(4 * k);
     drawingContext.shadowOffsetY = 2 + Math.round(4 * k);
-    image(piece.img, 0, 0, sw, sh);
+    image(imgToRender, offsetX, offsetY, renderWidth, renderHeight);
     pop();
   } else {
-    image(piece.img, 0, 0, sw, sh);
+    image(imgToRender, offsetX, offsetY, renderWidth, renderHeight);
   }
 
   // Draw hover highlight border (for rotation preview)
@@ -1088,7 +1286,10 @@ export function drawAdjacencyMatrix(width, height, pieces) {
   const availableWidth = W; // Use puzzle frame width
   const availableHeight = height - originY - marginBottom;
   const availableSize = Math.min(availableWidth, availableHeight);
-  const cellSize = Math.floor(availableSize / n);
+
+  // For 10x10 puzzles, scale up the matrix by 1.5x for better visibility
+  const scaleFactor = (rows === 10 && cols === 10) ? 1.5 : 1.0;
+  const cellSize = Math.floor((availableSize / n) * scaleFactor);
   const matrixSize = cellSize * n;
   const startX = originX; // Align with puzzle grid frame left
   const startY = originY; // Align with puzzle grid frame top
@@ -1912,6 +2113,462 @@ function drawRGBColorMap(width, height, sortedPieces, matrixSize, matrixStartX, 
   fill(80);
   noStroke();
   text(t("colorMapColumn"), mapX + 75, legendY + 1);
+
+  pop();
+}
+
+// ============================================================================
+// DASHBOARD VIEW - 3-panel heatmap visualization
+// ============================================================================
+
+// Dashboard state
+export const dashboardState = {
+  overlayEnabled: false,
+  selectedPiece: null, // {row, col} of selected cell
+  colormap: 'viridis', // Selected colormap: viridis, plasma, inferno, magma, cividis
+};
+
+export function setDashboardOverlay(enabled) {
+  dashboardState.overlayEnabled = enabled;
+}
+
+export function setDashboardColormap(colormap) {
+  dashboardState.colormap = colormap;
+}
+
+export function setDashboardSelectedPiece(row, col) {
+  dashboardState.selectedPiece = row !== null && col !== null ? { row, col } : null;
+}
+
+// Handle dashboard click detection - returns {row, col} if click is on a cell, null otherwise
+export function handleDashboardClick(mouseX, mouseY, width, height, rows, cols) {
+  if (!rows || !cols) return null;
+
+  // Dashboard layout calculation (MUST MATCH drawDashboard exactly)
+  const padding = 20;
+  const gapBetween = 15;
+  const availableWidth = width - padding * 2 - gapBetween * 2;
+  const panelWidth = availableWidth / 3;
+  const panelHeight = height - padding * 2 - 100; // Reserve space for title and legend
+
+  const leftX = padding;
+  const centerX = leftX + panelWidth + gapBetween;
+  const rightX = centerX + panelWidth + gapBetween;
+  const panelY = padding + 35; // Leave space for titles
+
+  // Check which panel was clicked
+  let panelX = null;
+  if (mouseX >= leftX && mouseX < leftX + panelWidth && mouseY >= panelY && mouseY < panelY + panelHeight) {
+    panelX = leftX;
+  } else if (mouseX >= centerX && mouseX < centerX + panelWidth && mouseY >= panelY && mouseY < panelY + panelHeight) {
+    panelX = centerX;
+  } else if (mouseX >= rightX && mouseX < rightX + panelWidth && mouseY >= panelY && mouseY < panelY + panelHeight) {
+    panelX = rightX;
+  } else {
+    return null; // Click outside all panels
+  }
+
+  // Calculate cell position within the panel (MUST MATCH panel draw functions)
+  const cellSize = Math.min(panelWidth / cols, panelHeight / rows);
+  const matrixW = cellSize * cols;
+  const matrixH = cellSize * rows;
+  const offsetX = panelX + (panelWidth - matrixW) / 2;
+  const offsetY = panelY + (panelHeight - matrixH) / 2;
+
+  // Check if click is within the matrix bounds
+  if (mouseX < offsetX || mouseX >= offsetX + matrixW ||
+      mouseY < offsetY || mouseY >= offsetY + matrixH) {
+    return null; // Click outside matrix
+  }
+
+  // Calculate row and column
+  const col = Math.floor((mouseX - offsetX) / cellSize);
+  const row = Math.floor((mouseY - offsetY) / cellSize);
+
+  // Validate bounds
+  if (row >= 0 && row < rows && col >= 0 && col < cols) {
+    return { row, col };
+  }
+
+  return null;
+}
+
+// Main dashboard draw function
+export function drawDashboard(width, height, rows, cols, pieces, elapsedMs) {
+  if (!rows || !cols) {
+    push();
+    fill(100);
+    textAlign(CENTER, CENTER);
+    textSize(16);
+    text(t("noMatrixData") || "No puzzle data", width / 2, height / 2);
+    pop();
+    return;
+  }
+
+  // Calculate layout - 3 columns with small gaps
+  const padding = 20;
+  const gapBetween = 15;
+  const availableWidth = width - padding * 2 - gapBetween * 2;
+  const panelWidth = availableWidth / 3;
+  const panelHeight = height - padding * 2 - 100; // Reserve space for title and legend
+
+  const leftX = padding;
+  const centerX = leftX + panelWidth + gapBetween;
+  const rightX = centerX + panelWidth + gapBetween;
+  const panelY = padding + 35; // Leave space for titles
+
+  // Piece lookup
+  const lookup = new Map();
+  for (const p of pieces || []) lookup.set(`${p.r},${p.c}`, p);
+
+  // Draw titles
+  push();
+  fill(50);
+  textSize(15);
+  textAlign(CENTER, TOP);
+  text(t("dashboardTimeTitle") || "Time Imprint", leftX + panelWidth / 2, padding);
+  text(t("dashboardInteractionTitle") || "Interactions", centerX + panelWidth / 2, padding);
+  text(t("dashboardMovementTitle") || "Movement", rightX + panelWidth / 2, padding);
+  pop();
+
+  // === LEFT PANEL: Time Imprint (reuse existing drawHeatmap logic) ===
+  drawDashboardTimePanel(leftX, panelY, panelWidth, panelHeight, rows, cols, lookup, pieces, elapsedMs);
+
+  // === CENTER PANEL: Interaction Heatmap ===
+  drawDashboardInteractionPanel(centerX, panelY, panelWidth, panelHeight, rows, cols, lookup, pieces);
+
+  // === RIGHT PANEL: Movement Distance ===
+  drawDashboardMovementPanel(rightX, panelY, panelWidth, panelHeight, rows, cols, lookup, pieces);
+}
+
+// Helper functions for each panel
+function drawDashboardTimePanel(x, y, w, h, rows, cols, lookup, pieces, elapsedMs) {
+  push();
+
+  // Calculate square cell size (smaller dimension determines cell size)
+  const cellSize = Math.min(w / cols, h / rows);
+  const matrixW = cellSize * cols;
+  const matrixH = cellSize * rows;
+
+  // Center the matrix within the panel
+  const offsetX = x + (w - matrixW) / 2;
+  const offsetY = y + (h - matrixH) / 2;
+
+  // Draw background image overlay if enabled
+  if (dashboardState.overlayEnabled && window.__currentPuzzleImage) {
+    push();
+    tint(255, 115); // 115/255 ≈ 45% opacity
+    image(window.__currentPuzzleImage, offsetX, offsetY, matrixW, matrixH);
+    pop();
+  }
+
+  // Calculate time range from solved pieces
+  const solvedTimes = (pieces || [])
+    .map(p => p.solvedAt)
+    .filter(v => typeof v === "number" && !isNaN(v) && isFinite(v) && v >= 0);
+  const hasSolved = solvedTimes.length > 0;
+  let minTime = 0;
+  let maxSolved = 0;
+  if (hasSolved) {
+    minTime = Math.min(...solvedTimes);
+    maxSolved = Math.max(...solvedTimes);
+  }
+  const legendMax = Math.max(maxSolved, 1);
+  const legendMin = Math.min(minTime, legendMax);
+  const legendRange = Math.max(1, legendMax - legendMin);
+
+  // Draw heatmap cells (square cells, centered)
+  stroke(210);
+  strokeWeight(1);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const p = lookup.get(`${r},${c}`);
+      const isSelected = dashboardState.selectedPiece && 
+                         dashboardState.selectedPiece.row === r && 
+                         dashboardState.selectedPiece.col === c;
+
+      // Determine cell color
+      const alpha = dashboardState.overlayEnabled ? 180 : 255; // Semi-transparent when overlay is on
+      const colorFunc = getDashboardColorFunction(dashboardState.colormap);
+      if (p && typeof p.solvedAt === "number") {
+        const t = (p.solvedAt - legendMin) / legendRange;
+        const [cr, cg, cb] = colorFunc(t);
+        fill(cr, cg, cb, alpha);
+      } else {
+        fill(230, 230, 230, alpha);
+      }
+
+      const cellX = offsetX + c * cellSize;
+      const cellY = offsetY + r * cellSize;
+      rect(cellX, cellY, cellSize, cellSize);
+
+      // Highlight selected cell
+      if (isSelected) {
+        noFill();
+        stroke(255, 200, 0);
+        strokeWeight(3);
+        rect(cellX, cellY, cellSize, cellSize);
+        strokeWeight(1);
+        stroke(210);
+      }
+    }
+  }
+
+  // Draw legend bar below the matrix
+  const legendW = Math.min(matrixW * 0.7, 180);
+  const legendH = 10;
+  const gapBelow = 12;
+  const lx = x + (w - legendW) / 2;
+  const ly = offsetY + matrixH + gapBelow;
+  const steps = 40;
+
+  noStroke();
+  const colorFunc = getDashboardColorFunction(dashboardState.colormap);
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1);
+    const [cr, cg, cb] = colorFunc(t);
+    fill(cr, cg, cb);
+    rect(lx + (legendW * i) / steps, ly, legendW / steps + 0.5, legendH);
+  }
+
+  // Legend border
+  stroke(200);
+  noFill();
+  rect(lx, ly, legendW, legendH);
+
+  // Legend labels
+  noStroke();
+  fill(80);
+  textSize(10);
+
+  if (hasSolved) {
+    textAlign(RIGHT, CENTER);
+    text(`${formatClock(minTime)}`, lx - 5, ly + legendH / 2);
+
+    textAlign(LEFT, CENTER);
+    text(`${formatClock(legendMax)}`, lx + legendW + 5, ly + legendH / 2);
+  } else {
+    textAlign(CENTER, TOP);
+    text(t("noSolved") || "No pieces placed", lx + legendW / 2, ly + legendH + 4);
+  }
+
+  pop();
+}
+
+function drawDashboardInteractionPanel(x, y, w, h, rows, cols, lookup, pieces) {
+  push();
+
+  // Calculate square cell size (smaller dimension determines cell size)
+  const cellSize = Math.min(w / cols, h / rows);
+  const matrixW = cellSize * cols;
+  const matrixH = cellSize * rows;
+
+  // Center the matrix within the panel
+  const offsetX = x + (w - matrixW) / 2;
+  const offsetY = y + (h - matrixH) / 2;
+
+  // Draw background image overlay if enabled
+  if (dashboardState.overlayEnabled && window.__currentPuzzleImage) {
+    push();
+    tint(255, 115); // 115/255 ≈ 45% opacity
+    image(window.__currentPuzzleImage, offsetX, offsetY, matrixW, matrixH);
+    pop();
+  }
+
+  // Calculate interaction counts (grabs + rotations) for each piece
+  const interactionCounts = new Map();
+  let maxInteractions = 1;
+
+  for (const p of pieces || []) {
+    // Count grabs (how many times the piece was picked up)
+    const grabs = (p.grabs || []).length;
+
+    // Count rotations (how many times the piece was rotated)
+    const rotations = p.rotationCount || 0;
+
+    // Total interactions
+    const total = grabs + rotations;
+
+    interactionCounts.set(`${p.r},${p.c}`, total);
+    if (total > maxInteractions) maxInteractions = total;
+  }
+
+  // Draw heatmap cells (square cells, centered)
+  stroke(210);
+  strokeWeight(1);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const count = interactionCounts.get(`${r},${c}`) || 0;
+      const isSelected = dashboardState.selectedPiece && 
+                         dashboardState.selectedPiece.row === r && 
+                         dashboardState.selectedPiece.col === c;
+
+      // Determine cell color based on interaction count
+      const alpha = dashboardState.overlayEnabled ? 180 : 255; // Semi-transparent when overlay is on
+      const colorFunc = getDashboardColorFunction(dashboardState.colormap);
+      const t = count / maxInteractions;
+      const [cr, cg, cb] = colorFunc(t);
+      fill(cr, cg, cb, alpha);
+
+      const cellX = offsetX + c * cellSize;
+      const cellY = offsetY + r * cellSize;
+      rect(cellX, cellY, cellSize, cellSize);
+
+      // Highlight selected cell
+      if (isSelected) {
+        noFill();
+        stroke(255, 200, 0);
+        strokeWeight(3);
+        rect(cellX, cellY, cellSize, cellSize);
+        strokeWeight(1);
+        stroke(210);
+      }
+    }
+  }
+
+  // Draw legend bar below the matrix
+  const legendW = Math.min(matrixW * 0.7, 180);
+  const legendH = 10;
+  const gapBelow = 12;
+  const lx = x + (w - legendW) / 2;
+  const ly = offsetY + matrixH + gapBelow;
+  const steps = 40;
+
+  noStroke();
+  const colorFunc = getDashboardColorFunction(dashboardState.colormap);
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1);
+    const [cr, cg, cb] = colorFunc(t);
+    fill(cr, cg, cb);
+    rect(lx + (legendW * i) / steps, ly, legendW / steps + 0.5, legendH);
+  }
+
+  // Legend border
+  stroke(200);
+  noFill();
+  rect(lx, ly, legendW, legendH);
+
+  // Legend labels
+  noStroke();
+  fill(80);
+  textSize(10);
+  textAlign(CENTER, TOP);
+  text(`${t("dashboardInteractionLegend")} (max: ${maxInteractions})`,
+       lx + legendW / 2, ly + legendH + 4);
+
+  pop();
+}
+
+function drawDashboardMovementPanel(x, y, w, h, rows, cols, lookup, pieces) {
+  push();
+
+  // Calculate square cell size (smaller dimension determines cell size)
+  const cellSize = Math.min(w / cols, h / rows);
+  const matrixW = cellSize * cols;
+  const matrixH = cellSize * rows;
+
+  // Center the matrix within the panel
+  const offsetX = x + (w - matrixW) / 2;
+  const offsetY = y + (h - matrixH) / 2;
+
+  // Draw background image overlay if enabled
+  if (dashboardState.overlayEnabled && window.__currentPuzzleImage) {
+    push();
+    tint(255, 115); // 115/255 ≈ 45% opacity
+    image(window.__currentPuzzleImage, offsetX, offsetY, matrixW, matrixH);
+    pop();
+  }
+
+  // Calculate total distance traveled for each piece from snapshots
+  const distances = new Map();
+  let maxDistance = 1;
+
+  for (const piece of pieces || []) {
+    if (!piece || typeof piece.index === 'undefined') continue;
+
+    let totalDist = 0;
+    let prevPos = null;
+
+    // Iterate through all snapshots and sum up the distances
+    for (const snap of globalSnapshots || []) {
+      const posData = snap.positions[piece.index];
+      if (posData) {
+        const pos = { x: posData.x, y: posData.y };
+        if (prevPos) {
+          // Calculate Euclidean distance between consecutive positions
+          const dist = Math.hypot(pos.x - prevPos.x, pos.y - prevPos.y);
+          totalDist += dist;
+        }
+        prevPos = pos;
+      }
+    }
+
+    distances.set(`${piece.r},${piece.c}`, totalDist);
+    if (totalDist > maxDistance) maxDistance = totalDist;
+  }
+
+  // Draw heatmap cells (square cells, centered)
+  stroke(210);
+  strokeWeight(1);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const dist = distances.get(`${r},${c}`) || 0;
+      const isSelected = dashboardState.selectedPiece && 
+                         dashboardState.selectedPiece.row === r && 
+                         dashboardState.selectedPiece.col === c;
+
+      // Determine cell color based on distance traveled
+      const alpha = dashboardState.overlayEnabled ? 180 : 255; // Semi-transparent when overlay is on
+      const colorFunc = getDashboardColorFunction(dashboardState.colormap);
+      const t = maxDistance > 0 ? dist / maxDistance : 0;
+      const [cr, cg, cb] = colorFunc(t);
+      fill(cr, cg, cb, alpha);
+
+      const cellX = offsetX + c * cellSize;
+      const cellY = offsetY + r * cellSize;
+      rect(cellX, cellY, cellSize, cellSize);
+
+      // Highlight selected cell
+      if (isSelected) {
+        noFill();
+        stroke(255, 200, 0);
+        strokeWeight(3);
+        rect(cellX, cellY, cellSize, cellSize);
+        strokeWeight(1);
+        stroke(210);
+      }
+    }
+  }
+
+  // Draw legend bar below the matrix
+  const legendW = Math.min(matrixW * 0.7, 180);
+  const legendH = 10;
+  const gapBelow = 12;
+  const lx = x + (w - legendW) / 2;
+  const ly = offsetY + matrixH + gapBelow;
+  const steps = 40;
+
+  noStroke();
+  const colorFunc = getDashboardColorFunction(dashboardState.colormap);
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1);
+    const [cr, cg, cb] = colorFunc(t);
+    fill(cr, cg, cb);
+    rect(lx + (legendW * i) / steps, ly, legendW / steps + 0.5, legendH);
+  }
+
+  // Legend border
+  stroke(200);
+  noFill();
+  rect(lx, ly, legendW, legendH);
+
+  // Legend labels
+  noStroke();
+  fill(80);
+  textSize(10);
+  textAlign(CENTER, TOP);
+  text(`${t("dashboardMovementLegend")} (max: ${Math.round(maxDistance)}px)`,
+       lx + legendW / 2, ly + legendH + 4);
 
   pop();
 }

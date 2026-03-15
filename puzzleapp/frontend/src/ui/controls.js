@@ -1,5 +1,5 @@
-﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState, puzzleMeta, bounds, addGlobalSnapshot, globalSnapshots, connectionsState, resetGlobalSnapshots, gameSettings, setHoverPiece, viewSettings, recordPieceInteraction, resetPieceInteractionMatrix } from "../canvas/state.js";
-import { drawPiece } from "../canvas/draw.js";
+﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState, puzzleMeta, bounds, addGlobalSnapshot, globalSnapshots, connectionsState, resetGlobalSnapshots, gameSettings, setHoverPiece, viewSettings, recordPieceInteraction, resetPieceInteractionMatrix, completionState, setPuzzleComplete, setShowingComplete, setImageHintEnabled } from "../canvas/state.js";
+import { drawPiece, dashboardState, setDashboardOverlay, setDashboardColormap, setDashboardSelectedPiece } from "../canvas/draw.js";
 import { PuzzlePiece } from "../canvas/piece.js";
 import { Group } from "../canvas/group.js";
 import { clampPiece, clampPieceOutsideGrid, averagePieceDiagonal, mergeWithSolvedNeighbors, targetTopLeft } from "../canvas/interaction.js";
@@ -9,6 +9,7 @@ import { gridRectScaled } from "./layout.js";
 import { zoomState, resetZoom, zoomIn, zoomOut, screenToWorld } from "../canvas/zoom.js";
 import { initSession, recordGameStart, recordGrab, recordGameComplete, getCurrentGame } from "../analytics/sessionStats.js";
 import { initStatsModal, showStatsModal } from "./statsModal.js";
+import { startCelebration } from "./completion.js";
 
 const galleryItems = [
   {
@@ -28,6 +29,14 @@ const galleryItems = [
     sizes: {
       "2x2": { image: "/public/gallery/city/2x2/image.png", mask: "/public/gallery/city/2x2/mask.png" },
       "6x6": { image: "/public/gallery/city/6x6/image.png", mask: "/public/gallery/city/6x6/mask.png" }
+    }
+  },
+  {
+    id: "objects",
+    title: { hu: "Tárgyak", en: "Objects" },
+    preview: "/public/gallery/objects/preview.png",
+    sizes: {
+      "10x10": { image: "/public/gallery/objects/10x10/image.png", mask: "/public/gallery/objects/10x10/mask.png" }
     }
   }
 ];
@@ -1114,8 +1123,20 @@ async function startPuzzleFromGallery() {
   const src = item.sizes[selectedSize];
   if (!src) return;
 
+  // Disable start button to prevent multiple clicks during loading
+  const startBtn = document.getElementById('startGame');
+  if (startBtn) startBtn.disabled = true;
+
   // Store image source for preview
   window.__currentPuzzleImageSrc = src.image;
+
+  // Load the actual puzzle image for dashboard overlay (p5.js Image object)
+  loadImage(src.image, (img) => {
+    window.__currentPuzzleImage = img;
+  }, (err) => {
+    console.warn('Failed to load puzzle image for dashboard overlay:', err);
+    window.__currentPuzzleImage = null;
+  });
 
   // Read rotation setting from checkbox
   const rotCheckbox = document.getElementById('rotationEnabled');
@@ -1204,6 +1225,8 @@ async function startPuzzleFromGallery() {
     alert(t("errorPrefix") + err.message);
   } finally {
     loading.style.display = 'none';
+    // Re-enable start button after loading completes (success or failure)
+    if (startBtn) startBtn.disabled = false;
   }
 }
 
@@ -1390,6 +1413,45 @@ export function wireControls() {
     });
   }
 
+  // Helper functions for analytics UI updates
+  const updateAnalyticsDesc = () => {
+    const analyticsDesc = document.getElementById('analyticsDesc');
+    if (!analyticsDesc) return;
+    const viewMap = {
+      "none": "analyticsDescNone",
+      "heatmap": "analyticsDescHeatmap",
+      "grabs": "analyticsDescGrabs",
+      "connections": "analyticsDescConnections",
+      "paths": "analyticsDescPaths",
+      "adjacency": "analyticsDescAdjacency",
+      "wrong": "analyticsDescWrong",
+      "dashboard": "analyticsDescDashboard"
+    };
+    const key = viewMap[styleState.analyticsView] || "analyticsDescNone";
+    analyticsDesc.textContent = t(key);
+  };
+
+  const updateConnectionsUI = () => {
+    const connectionsControls = document.getElementById('connectionsControls');
+    if (connectionsControls) {
+      connectionsControls.style.display = styleState.analyticsView === 'connections' ? 'block' : 'none';
+    }
+  };
+
+  const updatePathsUI = () => {
+    const pathsLegend = document.getElementById('pathsLegend');
+    if (pathsLegend) {
+      pathsLegend.style.display = styleState.analyticsView === 'paths' ? 'block' : 'none';
+    }
+  };
+
+  const updateDashboardUI = () => {
+    const dashboardControls = document.getElementById('dashboardControls');
+    if (dashboardControls) {
+      dashboardControls.style.display = styleState.analyticsView === 'dashboard' ? 'block' : 'none';
+    }
+  };
+
   const analyticsView = document.getElementById('analyticsView');
   const analyticsDesc = document.getElementById('analyticsDesc');
   if (analyticsView) {
@@ -1400,10 +1462,15 @@ export function wireControls() {
       updateAnalyticsDesc();
       updateConnectionsUI();
       updatePathsUI();
+      updateDashboardUI();
       updateZoomAvailability();  // Update zoom UI based on analytics state
       // Clear hover piece when entering analytics view
       if (styleState.analyticsView !== "none") {
         setHoverPiece(null);
+      }
+      // Clear dashboard selection when leaving dashboard view
+      if (styleState.analyticsView !== "dashboard") {
+        setDashboardSelectedPiece(null, null);
       }
       redraw();
     });
@@ -1419,6 +1486,27 @@ export function wireControls() {
   // initialize connections UI visibility
   updateConnectionsUI();
   updatePathsUI();
+  updateDashboardUI();
+
+  // Dashboard overlay toggle
+  const dashboardOverlayToggle = document.getElementById('dashboardOverlayToggle');
+  if (dashboardOverlayToggle) {
+    dashboardOverlayToggle.addEventListener('change', () => {
+      setDashboardOverlay(dashboardOverlayToggle.checked);
+      redraw();
+    });
+  }
+
+  // Dashboard colormap selector
+  const dashboardColormap = document.getElementById('dashboardColormap');
+  if (dashboardColormap) {
+    dashboardColormap.value = dashboardState.colormap; // Set initial value
+    dashboardColormap.addEventListener('change', () => {
+      setDashboardColormap(dashboardColormap.value);
+      redraw();
+    });
+  }
+
   const heatmapExport = document.getElementById('heatmapExport');
   if (heatmapExport) {
     const updateExportState = () => {
@@ -1550,6 +1638,15 @@ export function wireControls() {
         previewModal.setAttribute('hidden', '');
         window.__modalOpen = false;
       }
+    });
+  }
+
+  // Image hint toggle
+  const imageHintToggle = document.getElementById('imageHintToggle');
+  if (imageHintToggle) {
+    imageHintToggle.addEventListener('change', () => {
+      setImageHintEnabled(imageHintToggle.checked);
+      redraw();
     });
   }
 
@@ -1715,9 +1812,63 @@ export function wireControls() {
   const ps = document.getElementById('pieceScaleRange');
 
   ps.addEventListener('input', () => {
-    styleState.pieceScale = parseInt(ps.value,10) / 100;
+    const oldScale = styleState.pieceScale;
+    const newScale = parseInt(ps.value,10) / 100;
+    const scaleRatio = newScale / oldScale;
+
+    styleState.pieceScale = newScale;
     document.getElementById('pieceScaleLbl').textContent = `${Math.round(styleState.pieceScale*100)}%`;
-    for (const p of window.__pieces) if (p.solved) p.moveToTarget(); else clampPieceOutsideGrid(p);
+
+    // Handle groups properly - scale relative positions within merged groups
+    const processedGroups = new Set();
+
+    for (const g of (window.__groups || [])) {
+      if (processedGroups.has(g)) continue;
+      processedGroups.add(g);
+
+      const members = Array.from(g.members);
+      const isMergedGroup = members.length > 1;
+
+      if (isMergedGroup) {
+        // For merged groups, scale the relative positions to match the new piece size
+        // Use first piece as anchor point
+        const anchor = members[0];
+        const anchorOldX = anchor.x;
+        const anchorOldY = anchor.y;
+
+        // Scale relative positions of all pieces in the group
+        for (const p of members) {
+          if (p === anchor) continue; // Skip anchor piece
+
+          // Calculate relative position from anchor
+          const relX = p.x - anchorOldX;
+          const relY = p.y - anchorOldY;
+
+          // Scale the relative position
+          const newRelX = relX * scaleRatio;
+          const newRelY = relY * scaleRatio;
+
+          // Apply new position
+          p.x = anchorOldX + newRelX;
+          p.y = anchorOldY + newRelY;
+        }
+
+        // If all pieces are solved, move the entire group to target
+        const allSolved = members.every(p => p.solved);
+        if (allSolved) {
+          const refTarget = window.__targetTopLeft(anchor);
+          const dx = refTarget.x - anchor.x;
+          const dy = refTarget.y - anchor.y;
+
+          for (const p of members) {
+            p.x += dx;
+            p.y += dy;
+          }
+        }
+      }
+      // else: single piece - don't move, just let size change
+    }
+
     redraw();
   });
 
@@ -1808,6 +1959,10 @@ export function wireControls() {
       clearInterval(dragTrackInterval);
       dragTrackInterval = null;
     }
+
+    // Reset completion state
+    setPuzzleComplete(false);
+    setShowingComplete(false);
 
     const loading = document.getElementById('startLoading');
     if (loading) {
@@ -2034,13 +2189,22 @@ export function wireControls() {
     } catch (_) {}
 
     // Check if puzzle is completed
-    if (isPuzzleSolved()) {
+    if (isPuzzleSolved() && !completionState.isComplete) {
       stopTimer();
+      setPuzzleComplete(true);
+      setShowingComplete(true);
+
+      // Start confetti celebration
+      startCelebration(bounds.w || 640, bounds.h || 640);
+
       // Track game completion for statistics
       if (currentGameId) {
         recordGameComplete(currentGameId);
         currentGameId = null; // Reset for next game
       }
+
+      // Trigger redraw for celebration animation
+      redraw();
     }
 
     window.__dragging = null; redraw();

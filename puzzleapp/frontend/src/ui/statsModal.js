@@ -95,6 +95,7 @@ export function initStatsModal() {
             <span><span class="legend-dot" style="background: #3498db; width: 8px; height: 8px;"></span> 2×2</span>
             <span><span class="legend-dot" style="background: #f39c12; width: 16px; height: 16px;"></span> 4×4</span>
             <span><span class="legend-dot" style="background: #e74c3c; width: 20px; height: 20px;"></span> 6×6</span>
+            <span><span class="legend-dot" style="background: #9b59b6; width: 24px; height: 24px;"></span> 10×10</span>
           </div>
         </div>
         
@@ -325,7 +326,9 @@ function drawTimeline(stats) {
     if (pieces <= 16) return 16; // 4×4
     if (pieces <= 25) return 18; // 5×5
     if (pieces <= 36) return 20; // 6×6
-    return 24;                   // 8×8
+    if (pieces <= 64) return 22; // 8×8
+    if (pieces <= 100) return 24; // 10×10
+    return 26;                    // Larger
   };
 
   // Color scale (based on difficulty)
@@ -336,7 +339,8 @@ function drawTimeline(stats) {
       '4x4': '#f39c12', // Orange
       '5x5': '#e67e22', // Dark orange
       '6x6': '#e74c3c', // Red
-      '8x8': '#9b59b6'  // Purple
+      '8x8': '#9b59b6', // Purple
+      '10x10': '#9b59b6' // Purple
     };
     return colors[size] || '#95a5a6';
   };

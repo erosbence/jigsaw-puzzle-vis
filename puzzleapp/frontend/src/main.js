@@ -1,6 +1,6 @@
 import { wireControls } from "./ui/controls.js";
-import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections, drawMovementPaths, drawAdjacencyMatrix } from "./canvas/draw.js";
-import { styleState, setCanvasSize, puzzleGrid, timerState, listPieces, setHoverPiece, gameSettings, viewSettings, puzzleMeta, rgbButtonPositions, setRGBMapProjection, rgbMapProjection, matrixGroupingButtonPos, toggleMatrixGrouping } from "./canvas/state.js";
+import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections, drawMovementPaths, drawAdjacencyMatrix, drawDashboard, handleDashboardClick, setDashboardSelectedPiece } from "./canvas/draw.js";
+import { styleState, setCanvasSize, puzzleGrid, timerState, listPieces, setHoverPiece, gameSettings, viewSettings, puzzleMeta, rgbButtonPositions, setRGBMapProjection, rgbMapProjection, matrixGroupingButtonPos, toggleMatrixGrouping, completionState } from "./canvas/state.js";
 import { clampPiece, groupAlphaHit, targetTopLeft, shufflePieces } from "./canvas/interaction.js";
 import { Group } from "./canvas/group.js";
 import { gridRectScaled } from "./ui/layout.js";
@@ -8,6 +8,7 @@ import {
   zoomState, applyZoomTransform, resetZoom, 
   handleMouseWheel, startPan, updatePan, stopPan, screenToWorld
 } from "./canvas/zoom.js";
+import { updateAndDrawCelebration, isCelebrationActive } from "./ui/completion.js";
 
 function canvasHostSize() {
   const host = document.getElementById('canvasHost');
@@ -135,7 +136,7 @@ window.draw = function () {
     }
 
     // Draw analytics views or pieces
-    if (styleState.analyticsView === "heatmap" && ((puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 4 && puzzleGrid.cols === 4) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6))) {
+    if (styleState.analyticsView === "heatmap" && ((puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 4 && puzzleGrid.cols === 4) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6) || (puzzleGrid.rows === 10 && puzzleGrid.cols === 10))) {
       // Note: drawHeatmap needs to be updated to accept buffer parameter
       // For now, skip analytics in zoom mode
     } else if (styleState.analyticsView === "grabs") {
@@ -192,9 +193,30 @@ window.draw = function () {
     scale(zoomState.scale);
   }
 
-  drawBackground(width, height);
+  // Use white background for dashboard, gray for everything else
+  if (styleState.analyticsView === "dashboard") {
+    background(255); // White
+  } else {
+    drawBackground(width, height);
+  }
 
-  if (styleState.analyticsView === "heatmap" && ((puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 4 && puzzleGrid.cols === 4) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6))) {
+  // Draw faded image hint overlay if enabled (only in normal view)
+  if (viewSettings.imageHintEnabled && styleState.analyticsView === "none" && window.__currentPuzzleImage) {
+    const { originX, originY, W, H } = gridRectScaled(width, height);
+    push();
+    tint(255, 255, 255, 60); // Very faded (opacity ~23%)
+    image(window.__currentPuzzleImage, originX, originY, W, H);
+    noTint();
+    pop();
+  }
+
+  if (styleState.analyticsView === "dashboard") {
+    drawDashboard(width, height, puzzleGrid.rows, puzzleGrid.cols, listPieces(), timerState.elapsed);
+    pop();
+    if (needsRedraw) setTimeout(() => redraw(), 16);
+    return;
+  }
+  if (styleState.analyticsView === "heatmap" && ((puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 4 && puzzleGrid.cols === 4) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6) || (puzzleGrid.rows === 10 && puzzleGrid.cols === 10))) {
     drawHeatmap(width, height, puzzleGrid.rows, puzzleGrid.cols, listPieces(), timerState.elapsed);
     pop();
     if (needsRedraw) setTimeout(() => redraw(), 16);
@@ -225,9 +247,25 @@ window.draw = function () {
     return;
   }
 
-  for (const g of (window.__groups || [])) g.draw(window.__drawPiece || drawPiece);
+  // Draw pieces or complete image
+  if (completionState.showingComplete && window.__currentPuzzleImage) {
+    // Show complete puzzle image (centered in grid area)
+    const { originX, originY, W, H } = gridRectScaled(width, height);
+    image(window.__currentPuzzleImage, originX, originY, W, H);
+  } else {
+    // Draw individual pieces
+    for (const g of (window.__groups || [])) g.draw(window.__drawPiece || drawPiece);
+  }
 
   pop();
+
+  // Draw confetti animation on top (not affected by zoom)
+  if (isCelebrationActive()) {
+    const stillActive = updateAndDrawCelebration(window);
+    if (stillActive) {
+      setTimeout(() => redraw(), 16); // Continue animation
+    }
+  }
 
   // Continue animation if needed
   if (needsRedraw) {
@@ -236,6 +274,17 @@ window.draw = function () {
 };
 
 window.mousePressed = () => {
+  // Check dashboard cell click (highest priority for dashboard view)
+  if (styleState.analyticsView === "dashboard") {
+    const { w, h } = canvasHostSize();
+    const cell = handleDashboardClick(mouseX, mouseY, w, h, puzzleGrid.rows, puzzleGrid.cols);
+    if (cell) {
+      setDashboardSelectedPiece(cell.row, cell.col);
+      redraw();
+      return; // Don't process other clicks
+    }
+  }
+
   // Check matrix grouping button FIRST (for adjacency matrix view)
   if (matrixGroupingButtonPos.visible) {
     const { x, y, w, h } = matrixGroupingButtonPos;
