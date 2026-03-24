@@ -1,6 +1,6 @@
 import { wireControls } from "./ui/controls.js";
-import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections, drawMovementPaths, drawAdjacencyMatrix, drawDashboard, handleDashboardClick, setDashboardSelectedPiece } from "./canvas/draw.js";
-import { styleState, setCanvasSize, puzzleGrid, timerState, listPieces, setHoverPiece, gameSettings, viewSettings, puzzleMeta, rgbButtonPositions, setRGBMapProjection, rgbMapProjection, matrixGroupingButtonPos, toggleMatrixGrouping, completionState } from "./canvas/state.js";
+import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections, drawMovementPaths, handlePathsClick, drawAdjacencyMatrix, drawDashboard, handleDashboardClick, setDashboardSelectedPiece, drawOffGridAssemblies, handleOffGridClick, computeAdjacencyHoverKey, shapeProfileResizeHitTest, startShapeProfileResize, updateShapeProfileResize, stopShapeProfileResize, isShapeProfileDragging } from "./canvas/draw.js";
+import { styleState, setCanvasSize, puzzleGrid, timerState, listPieces, setHoverPiece, hoverPiece, gameSettings, viewSettings, puzzleMeta, rgbButtonPositions, setRGBMapProjection, rgbMapProjection, matrixGroupingButtonPos, toggleMatrixGrouping, completionState } from "./canvas/state.js";
 import { clampPiece, groupAlphaHit, targetTopLeft, shufflePieces } from "./canvas/interaction.js";
 import { Group } from "./canvas/group.js";
 import { gridRectScaled } from "./ui/layout.js";
@@ -84,105 +84,36 @@ window.setup = function () {
 };
 
 window.draw = function () {
-  // Create offscreen graphics buffer for magnifier
-  // Fix: Recreate buffer if size changed (prevent memory leak)
-  const needsBufferRecreate = !window.__offscreenBuffer || 
-                               window.__offscreenBuffer.width !== width || 
-                               window.__offscreenBuffer.height !== height;
+  const inAnalyticsView = styleState.analyticsView !== "none";
 
-  if (needsBufferRecreate) {
-    // Cleanup old buffer to prevent memory leak
-    if (window.__offscreenBuffer) {
-      window.__offscreenBuffer.remove();
-      window.__offscreenBuffer = null;
+  // Offscreen buffer only needed in normal puzzle view (magnifier support)
+  if (!inAnalyticsView) {
+    const needsBufferRecreate = !window.__offscreenBuffer || 
+                                 window.__offscreenBuffer.width !== width || 
+                                 window.__offscreenBuffer.height !== height;
+
+    if (needsBufferRecreate) {
+      if (window.__offscreenBuffer) {
+        window.__offscreenBuffer.remove();
+        window.__offscreenBuffer = null;
+      }
+      window.__offscreenBuffer = createGraphics(width, height);
     }
-    // Create new buffer with current canvas size
-    window.__offscreenBuffer = createGraphics(width, height);
+
+    const pg = window.__offscreenBuffer;
+    pg.clear();
   }
 
-  const pg = window.__offscreenBuffer;
-  pg.clear();
-
-  // Update rotation animations only for pieces that are animating
+  // Update rotation animations only in normal view (pieces aren't rendered in analytics)
   let needsRedraw = false;
-  for (const piece of listPieces()) {
-    if (piece.updateRotationAnimation && piece.isAnimating()) {
-      piece.updateRotationAnimation();
-      if (piece.isAnimating()) needsRedraw = true;
-    }
-  }
-
-  // Draw to offscreen buffer (for magnifier support)
-  const drawToBuffer = (buffer) => {
-    buffer.push();
-
-    // Apply zoom transformation if enabled
-    if (viewSettings.zoomEnabled && !magnifierState.enabled) {
-      buffer.translate(zoomState.offsetX, zoomState.offsetY);
-      buffer.scale(zoomState.scale);
-    }
-
-    buffer.background(245);
-
-    // Draw grid background
-    if (puzzleMeta.maxX > puzzleMeta.minX && puzzleMeta.maxY > puzzleMeta.minY) {
-      const { originX, originY, W, H } = gridRectScaled(buffer.width, buffer.height);
-      buffer.push(); 
-      buffer.noFill(); 
-      buffer.stroke(225); 
-      buffer.strokeWeight(2);
-      buffer.rect(originX + .5, originY + .5, W, H, 6); 
-      buffer.pop();
-    }
-
-    // Draw analytics views or pieces
-    if (styleState.analyticsView === "heatmap" && ((puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 4 && puzzleGrid.cols === 4) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6) || (puzzleGrid.rows === 10 && puzzleGrid.cols === 10))) {
-      // Note: drawHeatmap needs to be updated to accept buffer parameter
-      // For now, skip analytics in zoom mode
-    } else if (styleState.analyticsView === "grabs") {
-      // drawGrabPoints(buffer.width, buffer.height, listPieces());
-    } else if (styleState.analyticsView === "connections") {
-      // drawConnections(buffer.width, buffer.height, listPieces());
-    } else if (styleState.analyticsView === "paths") {
-      // drawMovementPaths(buffer.width, buffer.height, listPieces());
-    } else {
-      // Draw pieces normally
-      for (const g of (window.__groups || [])) {
-        for (const piece of Array.from(g.members)) {
-          const s = styleState;
-          buffer.push();
-
-          // Position and rotation
-          buffer.translate(piece.x + piece.sw / 2, piece.y + piece.sh / 2);
-          buffer.rotate(((piece.rotation || 0) * Math.PI) / 180);
-          buffer.translate(-piece.sw / 2, -piece.sh / 2);
-
-          // Shadow
-          if (s.shadow) {
-            buffer.push();
-            buffer.tint(0, 0, 0, s.shadowI);
-            buffer.image(piece.img, 3, 3, piece.sw, piece.sh);
-            buffer.pop();
-          }
-
-          // Main image
-          buffer.image(piece.img, 0, 0, piece.sw, piece.sh);
-
-          // Outline
-          if (s.outline) {
-            buffer.noFill();
-            buffer.stroke(0, 0, 0, 120);
-            buffer.strokeWeight(s.outlineW || 1);
-            buffer.rect(0.5, 0.5, piece.sw - 1, piece.sh - 1);
-          }
-
-          buffer.pop();
-        }
+  if (!inAnalyticsView) {
+    for (const piece of listPieces()) {
+      if (piece.updateRotationAnimation && piece.isAnimating()) {
+        piece.updateRotationAnimation();
+        if (piece.isAnimating()) needsRedraw = true;
       }
     }
-
-    buffer.pop();
-  };
+  }
 
   // Draw main canvas
   push();
@@ -213,37 +144,36 @@ window.draw = function () {
   if (styleState.analyticsView === "dashboard") {
     drawDashboard(width, height, puzzleGrid.rows, puzzleGrid.cols, listPieces(), timerState.elapsed);
     pop();
-    if (needsRedraw) setTimeout(() => redraw(), 16);
     return;
   }
   if (styleState.analyticsView === "heatmap" && ((puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 4 && puzzleGrid.cols === 4) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6) || (puzzleGrid.rows === 10 && puzzleGrid.cols === 10))) {
     drawHeatmap(width, height, puzzleGrid.rows, puzzleGrid.cols, listPieces(), timerState.elapsed);
     pop();
-    if (needsRedraw) setTimeout(() => redraw(), 16);
     return;
   }
   if (styleState.analyticsView === "grabs") {
     drawGrabPoints(width, height, listPieces());
     pop();
-    if (needsRedraw) setTimeout(() => redraw(), 16);
     return;
   }
   if (styleState.analyticsView === "connections") {
     drawConnections(width, height, listPieces());
     pop();
-    if (needsRedraw) setTimeout(() => redraw(), 16);
     return;
   }
   if (styleState.analyticsView === "paths") {
     drawMovementPaths(width, height, listPieces());
     pop();
-    if (needsRedraw) setTimeout(() => redraw(), 16);
     return;
   }
   if (styleState.analyticsView === "adjacency") {
     drawAdjacencyMatrix(width, height, listPieces());
     pop();
-    if (needsRedraw) setTimeout(() => redraw(), 16);
+    return;
+  }
+  if (styleState.analyticsView === "offgrid") {
+    drawOffGridAssemblies(width, height, listPieces());
+    pop();
     return;
   }
 
@@ -271,17 +201,43 @@ window.draw = function () {
   if (needsRedraw) {
     setTimeout(() => redraw(), 16); // ~60fps
   }
-};
+
+  };
 
 window.mousePressed = () => {
   // Check dashboard cell click (highest priority for dashboard view)
   if (styleState.analyticsView === "dashboard") {
     const { w, h } = canvasHostSize();
+
+    // Check shape profile resize grip (drag to resize)
+    if (shapeProfileResizeHitTest(mouseX, mouseY, w, h)) {
+      startShapeProfileResize(mouseY, h);
+      return;
+    }
+
     const cell = handleDashboardClick(mouseX, mouseY, w, h, puzzleGrid.rows, puzzleGrid.cols);
     if (cell) {
-      setDashboardSelectedPiece(cell.row, cell.col);
+      if (typeof cell.row === 'number' && typeof cell.col === 'number') {
+        setDashboardSelectedPiece(cell.row, cell.col);
+      }
       redraw();
       return; // Don't process other clicks
+    }
+  }
+
+  // Check paths view piece click
+  if (styleState.analyticsView === "paths") {
+    if (handlePathsClick(mouseX, mouseY)) {
+      redraw();
+      return;
+    }
+  }
+
+  // Check off-grid assemblies piece click
+  if (styleState.analyticsView === "offgrid") {
+    if (handleOffGridClick(mouseX, mouseY)) {
+      redraw();
+      return;
     }
   }
 
@@ -334,6 +290,15 @@ window.mousePressed = () => {
 };
 
 window.mouseDragged = () => {
+  // Handle shape profile resize drag
+  if (isShapeProfileDragging()) {
+    cursor('ns-resize');
+    const { h } = canvasHostSize();
+    if (updateShapeProfileResize(mouseY, h)) {
+      redraw();
+    }
+    return;
+  }
   // Handle panning if zoom is enabled and panning is active
   // Note: isPanning flag ensures we don't interfere with piece dragging
   if (zoomState.isPanning && viewSettings.zoomEnabled) {
@@ -345,6 +310,12 @@ window.mouseDragged = () => {
 };
 
 window.mouseReleased = () => {
+  // Stop shape profile resize (returns true if it was a click → toggle)
+  if (isShapeProfileDragging()) {
+    stopShapeProfileResize();
+    redraw();
+    return;
+  }
   // Stop panning if zoom is enabled
   // Note: Only stop pan if we were actually panning (not piece dragging)
   if (zoomState.isPanning) {
@@ -357,6 +328,8 @@ window.mouseReleased = () => {
 // Throttle mouseMoved to reduce CPU usage
 let lastMouseMoveTime = 0;
 const MOUSE_MOVE_THROTTLE = 100; // ms - increased for better 6x6 performance
+let _lastAdjHoverKey = null; // diff-based redraw for adjacency matrix view
+let _lastGripHover = false;  // diff-based redraw for shape profile resize grip
 
 window.mouseMoved = () => {
   const now = Date.now();
@@ -367,13 +340,26 @@ window.mouseMoved = () => {
   // Update hover piece for rotation (if rotation is enabled and not in analytics view)
   if (gameSettings.rotationEnabled && styleState.analyticsView === "none" && window.__findPieceAt) {
     const hitPiece = window.__findPieceAt(mouseX, mouseY);
-    setHoverPiece(hitPiece);
-    redraw();
-  } else if (styleState.analyticsView === "paths") {
-    // Redraw when mouse moves in paths view to show hover effects
-    redraw();
+    if (hitPiece !== hoverPiece) {
+      setHoverPiece(hitPiece);
+      redraw();
+    }
   } else if (styleState.analyticsView === "adjacency") {
-    // Redraw when mouse moves in adjacency matrix to show color preview
-    redraw();
+    // Diff-based redraw: only repaint when hover zone actually changes
+    const key = computeAdjacencyHoverKey(mouseX, mouseY);
+    if (key !== _lastAdjHoverKey) {
+      _lastAdjHoverKey = key;
+      redraw();
+    }
+  } else if (styleState.analyticsView === "dashboard") {
+    // Diff-based redraw for resize grip hover highlight
+    const { w, h } = canvasHostSize();
+    const onGrip = shapeProfileResizeHitTest(mouseX, mouseY, w, h);
+    cursor(onGrip ? 'ns-resize' : ARROW);
+    if (onGrip !== _lastGripHover) {
+      _lastGripHover = onGrip;
+      redraw();
+    }
   }
+  // paths view: no hover-dependent rendering → no redraw needed
 };

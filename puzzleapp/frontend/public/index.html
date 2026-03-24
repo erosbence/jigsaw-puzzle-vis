@@ -142,17 +142,18 @@
                     <!--<option value="connections" data-i18n="analyticsViewConnections">Kapcsolatok</option>-->
                     <option value="paths" data-i18n="analyticsViewPaths">Mozgási útvonalak</option>
                     <option value="adjacency" data-i18n="analyticsViewAdjacency">Szomszédsági mátrix</option>
+                    <option value="offgrid" data-i18n="analyticsViewOffgrid">Külső illesztések</option>
                   </select>
                 </div>
                 <div id="analyticsDesc" class="hint" data-i18n="analyticsDescNone">Válassz egy nézetet az analitikához.</div>
 
-                <!-- Dashboard overlay toggle -->
+                <!-- Dashboard / Offgrid shared controls -->
                 <div id="dashboardControls" style="display:none; margin-top:12px;">
-                  <div class="row">
+                  <div id="dashboardOverlayRow" class="row">
                     <label for="dashboardOverlayToggle" data-i18n="dashboardOverlayToggle">Háttérkép megjelenítése</label>
                     <input type="checkbox" id="dashboardOverlayToggle" />
                   </div>
-                  <div class="row" style="margin-top:8px;">
+                  <div id="dashboardColormapRow" class="row" style="margin-top:8px;">
                     <label for="dashboardColormap" data-i18n="dashboardColormap">Színskála</label>
                     <select id="dashboardColormap">
                       <option value="viridis" data-i18n-option="colormapViridis">Viridis</option>
@@ -160,13 +161,29 @@
                       <option value="inferno" data-i18n-option="colormapInferno">Inferno</option>
                       <option value="magma" data-i18n-option="colormapMagma">Magma</option>
                       <option value="cividis" data-i18n-option="colormapCividis">Cividis</option>
+                      <option value="seismic" data-i18n-option="colormapSeismic">Seismic</option>
                     </select>
+                  </div>
+                  <div id="dashboardOpacityRow" class="row" style="margin-top:8px; display:none;">
+                    <label for="dashboardOpacity" data-i18n="dashboardOpacityLabel">Szín átlátszóság</label>
+                    <input type="range" id="dashboardOpacity" min="0" max="100" value="85" />
                   </div>
                 </div>
 
                 <div id="pathsLegend" style="display:none; margin-top:12px;">
+                  <div class="row" style="margin-bottom:10px;">
+                    <label for="pathsColormap" data-i18n="pathsColormapLabel">Színskála</label>
+                    <select id="pathsColormap">
+                      <option value="viridis" data-i18n-option="colormapViridis">Viridis</option>
+                      <option value="plasma" data-i18n-option="colormapPlasma">Plasma</option>
+                      <option value="inferno" data-i18n-option="colormapInferno">Inferno</option>
+                      <option value="magma" data-i18n-option="colormapMagma">Magma</option>
+                      <option value="cividis" data-i18n-option="colormapCividis">Cividis</option>
+                      <option value="seismic" data-i18n-option="colormapSeismic">Seismic</option>
+                    </select>
+                  </div>
                   <div style="margin-bottom:10px;">
-                    <div style="position:relative; height:14px; background: linear-gradient(to right, rgb(68,1,84), rgb(59,82,139), rgb(33,145,140), rgb(94,201,98), rgb(253,231,37)); border:1px solid #969696; border-radius:2px;"></div>
+                    <div id="pathsGradientBar" style="position:relative; height:14px; background: linear-gradient(to right, rgb(68,1,84), rgb(59,82,139), rgb(33,145,140), rgb(94,201,98), rgb(253,231,37)); border:1px solid #969696; border-radius:2px;"></div>
                     <div style="display:flex; justify-content:space-between; font-size:11px; color:#505050; margin-top:4px;">
                       <span data-i18n="pathStart">Kezdés</span>
                       <span data-i18n="pathEnd">Vég</span>
@@ -174,17 +191,17 @@
                   </div>
                   <div style="font-size:11px; color:#666; margin-bottom:6px;" data-i18n="pathMarkers">Jelölők:</div>
                   <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px; font-size:11px;">
-                    <div style="width:14px; height:14px; min-width:14px; background:rgba(68,1,84,0.8); border:2px solid #ffffff; box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>
+                    <div style="width:14px; height:14px; min-width:14px; background:rgba(40,40,80,1); border:2px solid #ffffff; border-radius:50%; box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>
                     <span data-i18n="pathStartMarker">Kezdés</span>
                   </div>
                   <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px; font-size:11px;">
-                    <div style="width:16px; height:16px; min-width:16px; background:rgba(94,201,98,0.8); border:2px solid #ffffff; border-radius:50%; box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>
+                    <div style="width:8px; height:8px; min-width:8px; background:rgba(160,160,170,0.8); border:1.5px solid #ffffff; border-radius:50%; box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>
                     <span data-i18n="pathStopMarker">Megállás</span>
                   </div>
                   <div style="display:flex; align-items:center; gap:10px; font-size:11px;">
                     <div style="width:16px; height:16px; min-width:16px; position:relative;">
                       <svg width="16" height="16" viewBox="0 0 16 16" style="filter: drop-shadow(0 0 3px rgba(0,0,0,0.3));">
-                        <polygon points="8,1 9.5,6 14.5,6 10.5,9 12,14 8,10.5 4,14 5.5,9 1.5,6 6.5,6" fill="rgba(255,0,0,0.8)" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/>
+                        <polygon points="8,1 9.5,6 14.5,6 10.5,9 12,14 8,10.5 4,14 5.5,9 1.5,6 6.5,6" fill="rgba(253,231,37,0.9)" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/>
                       </svg>
                     </div>
                     <span data-i18n="pathEndMarker">Végpont</span>

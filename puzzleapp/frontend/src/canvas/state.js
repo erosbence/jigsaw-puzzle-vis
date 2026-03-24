@@ -14,6 +14,10 @@ export let globalSnapshots = [];
 // Connections view state (which piece selected, which snapshot index for that piece)
 export let connectionsState = { selected: null, snapshotIdx: 0 };
 
+// Paths view state – which piece(s) are selected for path display (max 2)
+// selected: array of piece indices (0-2 elements)
+export let pathsState = { selected: [], colormap: 'viridis' };
+
 // Piece-to-piece interaction matrix for adjacency visualization
 // Structure: { [fromIndex]: { [toIndex]: count } }
 // Example: { 0: { 1: 3, 2: 1 }, 1: { 0: 2, 3: 5 } }
@@ -158,6 +162,22 @@ export function newGroup(g) { groups.push(g); }
 export function listGroups() { return groups; }
 export function listPieces() { return pieces; }
 export function replaceGroups(arr) { groups = arr; }
+
+// Paths view helpers
+export function togglePathsPiece(index) {
+  const idx = pathsState.selected.indexOf(index);
+  if (idx >= 0) {
+    // Already selected – deselect
+    pathsState.selected.splice(idx, 1);
+  } else {
+    // Add; if already 2 selected, remove the oldest
+    if (pathsState.selected.length >= 2) pathsState.selected.shift();
+    pathsState.selected.push(index);
+  }
+}
+export function clearPathsSelection() {
+  pathsState.selected = [];
+}
 // Átmenetileg ezt a vizut kivezetjük amíg alaposabban meg nem tervezzük
 // A funkciók megmaradnak no-op formában, hogy a hívások ne dobjanak hibát.
 export function registerWrongLink(a, b, t) { /* intentionally disabled */ }
@@ -165,10 +185,24 @@ export function listWrongLinks() { return []; }
 export function clearWrongLinks() { /* intentionally disabled */ }
 
 export function addGlobalSnapshot(piecesArr) {
+  // Adaptive throttle: skip recordings when snapshot count is very high
+  if (globalSnapshots.length > 2000) {
+    addGlobalSnapshot._skipCounter = (addGlobalSnapshot._skipCounter || 0) + 1;
+    const skipRate = globalSnapshots.length > 4000 ? 4 : 2;
+    if (addGlobalSnapshot._skipCounter % skipRate !== 0) {
+      return globalSnapshots.length - 1; // return last valid index
+    }
+  }
+
+  // Build a fast group→id lookup (avoids O(groups) indexOf per piece)
+  const groupMap = new Map();
+  for (let gi = 0; gi < groups.length; gi++) {
+    groupMap.set(groups[gi], gi + 1);
+  }
+
   const positions = {};
   for (const p of piecesArr || []) {
     if (!p || typeof p.index === 'undefined') continue;
-    // store center position plus piece display size and meta grid coord so we can normalize later
     positions[p.index] = {
       x: p.x + (p.sw || 0) / 2,
       y: p.y + (p.sh || 0) / 2,
@@ -176,10 +210,7 @@ export function addGlobalSnapshot(piecesArr) {
       sh: p.sh || 0,
       metaX: (p.meta && p.meta.x) || 0,
       metaY: (p.meta && p.meta.y) || 0,
-      // include explicit group id mapping so historical snapshots can
-      // accurately reflect group membership. group ids are derived from
-      // the current `groups` array order at snapshot time.
-      groupId: (p.group && (function(g){ try { const gi = groups.indexOf(g); return gi >= 0 ? gi + 1 : null; } catch(_) { return null; } })(p.group)) || null
+      groupId: (p.group && groupMap.get(p.group)) || null
     };
   }
   const idx = globalSnapshots.length;

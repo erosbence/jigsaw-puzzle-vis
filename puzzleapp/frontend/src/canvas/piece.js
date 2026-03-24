@@ -8,6 +8,7 @@ export class PuzzlePiece {
     this.group = null; this.r = r; this.c = c; this.index = idx; this.meta = meta; this.solved = false; this.solvedAt = null; this.grabs = [];
     this.rotation = 0; // Current animated rotation in degrees (-180 to 180)
     this.rotationTarget = 0; // Target rotation for smooth animation
+    this.rotationCount = 0; // How many times the piece was rotated
   }
   get sw() { return Math.max(1, Math.round(this.w * styleState.pieceScale)); }
   get sh() { return Math.max(1, Math.round(this.h * styleState.pieceScale)); }
@@ -16,6 +17,7 @@ export class PuzzlePiece {
   rotate(degrees) {
     // Set target rotation and normalize to 0-360 range (for 90° increments)
     this.rotationTarget = ((this.rotationTarget + degrees) % 360 + 360) % 360;
+    this.rotationCount = (this.rotationCount || 0) + 1;
   }
 
   isCorrectOrientation() {
@@ -24,7 +26,12 @@ export class PuzzlePiece {
 
   // Check if piece is currently animating
   isAnimating() {
-    return Math.abs(this.rotation - this.rotationTarget) >= 1;
+    // Must normalize delta the same way updateRotationAnimation does,
+    // because rotation (-180..180) and rotationTarget (0..360) use different ranges.
+    let delta = this.rotationTarget - this.rotation;
+    if (delta > 180) delta -= 360;
+    if (delta < -180) delta += 360;
+    return Math.abs(delta) >= 1;
   }
 
   // Animate rotation towards target
@@ -51,6 +58,62 @@ export class PuzzlePiece {
   canRotate() {
     // Can only rotate if not solved and piece is alone (not in a merged group)
     return !this.solved && (!this.group || this.group.members.size === 1);
+  }
+
+  // Position-based piece type classification
+  getPieceType(rows, cols) {
+    const onTop = this.r === 0, onBottom = this.r === rows - 1;
+    const onLeft = this.c === 0, onRight = this.c === cols - 1;
+    const flat = (onTop ? 1 : 0) + (onBottom ? 1 : 0) + (onLeft ? 1 : 0) + (onRight ? 1 : 0);
+    if (flat >= 2) return "corner";
+    if (flat === 1) return "edge";
+    return "interior";
+  }
+
+  // Edge configuration from alpha channel: { top, right, bottom, left } each "flat"|"tab"|"blank"
+  analyzeEdges(rows, cols) {
+    if (this._edgeConfig) return this._edgeConfig;
+    this._edgeConfig = {
+      top:    this.r === 0            ? "flat" : this._detectEdge("top"),
+      right:  this.c === cols - 1     ? "flat" : this._detectEdge("right"),
+      bottom: this.r === rows - 1     ? "flat" : this._detectEdge("bottom"),
+      left:   this.c === 0            ? "flat" : this._detectEdge("left")
+    };
+    return this._edgeConfig;
+  }
+
+  // Signature string like "FTBF"
+  getEdgeSignature(rows, cols) {
+    const e = this.analyzeEdges(rows, cols);
+    const m = { flat: "F", tab: "T", blank: "B" };
+    return m[e.top] + m[e.right] + m[e.bottom] + m[e.left];
+  }
+
+  // Detect tab vs blank on a non-flat edge by sampling alpha in outer band
+  _detectEdge(side) {
+    const px = this.img.pixels;
+    const w = this.w, h = this.h;
+    if (!px || !w || !h) return "blank";
+    const band = Math.max(2, Math.round(Math.min(w, h) * 0.04));
+    let opaque = 0, total = 0;
+    if (side === "top") {
+      const x0 = Math.floor(w * 0.3), x1 = Math.ceil(w * 0.7);
+      for (let y = 0; y < band && y < h; y++)
+        for (let x = x0; x < x1; x++) { if (px[4 * (y * w + x) + 3] > 10) opaque++; total++; }
+    } else if (side === "bottom") {
+      const x0 = Math.floor(w * 0.3), x1 = Math.ceil(w * 0.7);
+      for (let y = Math.max(0, h - band); y < h; y++)
+        for (let x = x0; x < x1; x++) { if (px[4 * (y * w + x) + 3] > 10) opaque++; total++; }
+    } else if (side === "left") {
+      const y0 = Math.floor(h * 0.3), y1 = Math.ceil(h * 0.7);
+      for (let y = y0; y < y1; y++)
+        for (let x = 0; x < band && x < w; x++) { if (px[4 * (y * w + x) + 3] > 10) opaque++; total++; }
+    } else {
+      const y0 = Math.floor(h * 0.3), y1 = Math.ceil(h * 0.7);
+      for (let y = y0; y < y1; y++)
+        for (let x = Math.max(0, w - band); x < w; x++) { if (px[4 * (y * w + x) + 3] > 10) opaque++; total++; }
+    }
+    return (total > 0 && opaque / total > 0.3) ? "tab" : "blank";
   }
 
   hit(px, py) {

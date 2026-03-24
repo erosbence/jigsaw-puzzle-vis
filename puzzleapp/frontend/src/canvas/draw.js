@@ -1,6 +1,6 @@
 import { gridRectScaled } from "../ui/layout.js";
 import { t } from "../ui/i18n.js";
-import { styleState, puzzleMeta, listPieces, listWrongLinks, globalSnapshots, connectionsState, puzzleGrid, hoverPiece, getPieceInteractionMatrix, matrixHoverState, setMatrixHoverState, rgbMapProjection, setRGBMapProjection, setRGBButtonPositions, clearRGBButtonPositions, getMatrixGroupingEnabled, setMatrixGroupingButtonPos, clearMatrixGroupingButtonPos, matrixCurrentOrder, setMatrixCurrentOrder, matrixAnimationState, startMatrixAnimation, getMatrixAnimationProgress } from "./state.js";
+import { styleState, puzzleMeta, listPieces, listWrongLinks, globalSnapshots, connectionsState, puzzleGrid, hoverPiece, getPieceInteractionMatrix, matrixHoverState, setMatrixHoverState, rgbMapProjection, setRGBMapProjection, setRGBButtonPositions, clearRGBButtonPositions, getMatrixGroupingEnabled, setMatrixGroupingButtonPos, clearMatrixGroupingButtonPos, matrixCurrentOrder, setMatrixCurrentOrder, matrixAnimationState, startMatrixAnimation, getMatrixAnimationProgress, pathsState, togglePathsPiece } from "./state.js";
 import { averagePieceDiagonal } from "./interaction.js";
 
 export function drawBackground(width, height) {
@@ -10,6 +10,59 @@ export function drawBackground(width, height) {
     push(); noFill(); stroke(225); strokeWeight(2);
     rect(originX + .5, originY + .5, W, H, 6); pop();
   }
+}
+
+// Cached white silhouette of a piece (all opaque pixels → white, alpha preserved)
+// Used for dashboard heatmaps: tint(r,g,b) on white → pure solid color in piece shape
+function getWhiteSilhouette(piece) {
+  if (piece._whiteSilhouette) return piece._whiteSilhouette;
+  const src = piece.img;
+  if (!src) return null;
+  const g = createImage(src.width, src.height);
+  g.copy(src, 0, 0, src.width, src.height, 0, 0, src.width, src.height);
+  g.loadPixels();
+  for (let i = 0; i < g.pixels.length; i += 4) {
+    if (g.pixels[i + 3] > 0) {
+      g.pixels[i] = 255;
+      g.pixels[i + 1] = 255;
+      g.pixels[i + 2] = 255;
+    }
+  }
+  g.updatePixels();
+  piece._whiteSilhouette = g;
+  return g;
+}
+
+// Pre-tinted silhouette cache: avoids expensive tint()+image() every frame.
+// The white silhouette is recolored once per unique (r,g,b,alpha) and cached
+// on the piece object.  Up to 4 entries per piece (3 dashboard panels + spare).
+function getTintedSilhouette(piece, cr, cg, cb, alpha) {
+  const sil = getWhiteSilhouette(piece);
+  if (!sil) return null;
+
+  const key = `${cr},${cg},${cb},${alpha}`;
+  if (!piece._tintedSilMap) piece._tintedSilMap = {};
+  if (piece._tintedSilMap[key]) return piece._tintedSilMap[key];
+
+  const img = createImage(sil.width, sil.height);
+  img.copy(sil, 0, 0, sil.width, sil.height, 0, 0, sil.width, sil.height);
+  img.loadPixels();
+  for (let i = 0; i < img.pixels.length; i += 4) {
+    if (img.pixels[i + 3] > 0) {
+      img.pixels[i]     = cr;
+      img.pixels[i + 1] = cg;
+      img.pixels[i + 2] = cb;
+      img.pixels[i + 3] = Math.round(img.pixels[i + 3] * alpha / 255);
+    }
+  }
+  img.updatePixels();
+
+  // Evict oldest entry when cache grows beyond 4 slots
+  const keys = Object.keys(piece._tintedSilMap);
+  if (keys.length >= 4) delete piece._tintedSilMap[keys[0]];
+
+  piece._tintedSilMap[key] = img;
+  return img;
 }
 
 export function drawConnections(width, height, pieces) {
@@ -276,27 +329,6 @@ export function drawWrongLinks(width, height) {
   return;
 }
 
-function seismicColor(t) {
-  const clamped = Math.max(0, Math.min(1, t));
-  const blue = [0, 0, 140];
-  const white = [255, 255, 255];
-  const red = [180, 0, 0];
-  if (clamped <= 0.5) {
-    const k = clamped / 0.5;
-    return [
-      Math.round(blue[0] + (white[0] - blue[0]) * k),
-      Math.round(blue[1] + (white[1] - blue[1]) * k),
-      Math.round(blue[2] + (white[2] - blue[2]) * k)
-    ];
-  }
-  const k = (clamped - 0.5) / 0.5;
-  return [
-    Math.round(white[0] + (red[0] - white[0]) * k),
-    Math.round(white[1] + (red[1] - white[1]) * k),
-    Math.round(white[2] + (red[2] - white[2]) * k)
-  ];
-}
-
 // Perceptually uniform sequential colormaps
 function viridisColor(t) {
   const clamped = Math.max(0, Math.min(1, t));
@@ -415,13 +447,42 @@ function cividisColor(t) {
 
 // Helper function to get the appropriate colormap function
 function getDashboardColorFunction(colormapName) {
-  switch (colormapName) {
+  return getColormapFunction(colormapName);
+}
+
+function seismicColor(t) {
+  const clamped = Math.max(0, Math.min(1, t));
+  // Seismic diverging colormap (dark blue → blue → white → red → dark red)
+  const colors = [
+    [0, 0, 76],       // t=0.0 dark blue
+    [0, 0, 255],      // t=0.25 blue
+    [255, 255, 255],  // t=0.5 white
+    [255, 0, 0],      // t=0.75 red
+    [128, 0, 0]       // t=1.0 dark red
+  ];
+  const idx = clamped * (colors.length - 1);
+  const i = Math.floor(idx);
+  const f = idx - i;
+  if (i >= colors.length - 1) return colors[colors.length - 1];
+  const c1 = colors[i];
+  const c2 = colors[i + 1];
+  return [
+    Math.round(c1[0] + (c2[0] - c1[0]) * f),
+    Math.round(c1[1] + (c2[1] - c1[1]) * f),
+    Math.round(c1[2] + (c2[2] - c1[2]) * f)
+  ];
+}
+
+// General purpose colormap resolver (used by paths and dashboard)
+function getColormapFunction(name) {
+  switch (name) {
     case 'viridis': return viridisColor;
     case 'plasma': return plasmaColor;
     case 'inferno': return infernoColor;
     case 'magma': return magmaColor;
     case 'cividis': return cividisColor;
-    default: return viridisColor; // fallback
+    case 'seismic': return seismicColor;
+    default: return viridisColor;
   }
 }
 
@@ -554,47 +615,10 @@ export function drawGrabPoints(width, height, pieces) {
   }
 }
 
-// Time-based color gradient: Viridis color scheme
-// Viridis is a perceptually uniform color scheme: dark purple → blue → teal → green → yellow
+// Time-based color gradient: uses the selected colormap from pathsState
 function timeColor(t) {
-  const clamped = Math.max(0, Math.min(1, t));
-
-  // Viridis color map approximation (5 key colors)
-  // Dark purple (68,1,84) → Blue (59,82,139) → Teal (33,145,140) → Green (94,201,98) → Yellow (253,231,37)
-
-  if (clamped < 0.25) {
-    // Dark purple → Blue
-    const k = clamped / 0.25;
-    return [
-      Math.round(68 + (59 - 68) * k),
-      Math.round(1 + (82 - 1) * k),
-      Math.round(84 + (139 - 84) * k)
-    ];
-  } else if (clamped < 0.5) {
-    // Blue → Teal
-    const k = (clamped - 0.25) / 0.25;
-    return [
-      Math.round(59 + (33 - 59) * k),
-      Math.round(82 + (145 - 82) * k),
-      Math.round(139 + (140 - 139) * k)
-    ];
-  } else if (clamped < 0.75) {
-    // Teal → Green
-    const k = (clamped - 0.5) / 0.25;
-    return [
-      Math.round(33 + (94 - 33) * k),
-      Math.round(145 + (201 - 145) * k),
-      Math.round(140 + (98 - 140) * k)
-    ];
-  } else {
-    // Green → Yellow
-    const k = (clamped - 0.75) / 0.25;
-    return [
-      Math.round(94 + (253 - 94) * k),
-      Math.round(201 + (231 - 201) * k),
-      Math.round(98 + (37 - 98) * k)
-    ];
-  }
+  const fn = getColormapFunction(pathsState.colormap || 'viridis');
+  return fn(t);
 }
 
 export function drawMovementPaths(width, height, pieces) {
@@ -667,9 +691,77 @@ export function drawMovementPaths(width, height, pieces) {
     pop();
   }
 
-  // For each piece, collect its movement history from snapshots
+  // --- Draw piece shapes (colorless outlines) at their target positions ---
+  // Helper: get or create cached grayscale version of a piece image
+  function getGrayscaleImg(piece) {
+    if (piece._grayscaleImg) return piece._grayscaleImg;
+    const src = piece.img;
+    if (!src) return null;
+    const g = createImage(src.width, src.height);
+    g.copy(src, 0, 0, src.width, src.height, 0, 0, src.width, src.height);
+    g.filter(GRAY);
+    piece._grayscaleImg = g;
+    return g;
+  }
+
+  // Store bounding boxes for click detection
+  const pieceBounds = [];
+  for (const pp of allPieces) {
+    if (!pp || typeof pp.index === 'undefined' || !pp.img) continue;
+    const tc = targetCenter(pp);
+    const pw = pp.sw || 0;
+    const ph = pp.sh || 0;
+    const px = tc.x - pw / 2;
+    const py = tc.y - ph / 2;
+
+    const isSelected = pathsState.selected.includes(pp.index);
+    const grayImg = getGrayscaleImg(pp);
+    if (!grayImg) continue;
+
+    push();
+    if (isSelected) {
+      tint(255, 220);
+    } else {
+      tint(255, 100);
+    }
+    image(grayImg, px, py, pw, ph);
+    pop();
+
+    // Draw highlight border for selected pieces
+    if (isSelected) {
+      push();
+      noFill();
+      stroke(50, 130, 240);
+      strokeWeight(2);
+      rect(px + 1, py + 1, pw - 2, ph - 2, 3);
+      pop();
+    }
+
+    // Store bounds for click hit-testing
+    pieceBounds.push({ index: pp.index, x: px, y: py, w: pw, h: ph });
+  }
+
+  // Expose piece bounds for click handler
+  drawMovementPaths._pieceBounds = pieceBounds;
+  drawMovementPaths._gridRect = { originX, originY, W, H, s };
+
+  // --- Only draw paths for selected piece(s) ---
+  const selectedSet = new Set(pathsState.selected);
+  if (selectedSet.size === 0) {
+    // No piece selected – show hint
+    push();
+    fill(120);
+    textAlign(CENTER, CENTER);
+    textSize(14);
+    text(t("pathsClickHint") || "Click on a piece to see its movement path", width / 2, originY + H + 30);
+    pop();
+    return;
+  }
+
+  // For each SELECTED piece, collect its movement history from snapshots
   for (const piece of allPieces) {
     if (!piece || typeof piece.index === 'undefined') continue;
+    if (!selectedSet.has(piece.index)) continue;
 
     const path = [];
     for (let i = 0; i < globalSnapshots.length; i++) {
@@ -742,79 +834,95 @@ export function drawMovementPaths(width, height, pieces) {
       };
     }
 
-    // Draw the path as smooth curves with time-based colors
-    push();
-    noFill();
+    // Pre-compute all curve segments for two-pass rendering (halo + color)
+    const segments = 30; // Higher subdivision for smooth gradient
+    const curvePoints = []; // { pt1, pt2, time }
     for (let i = 0; i < path.length - 1; i++) {
-      // Get 4 points for Catmull-Rom spline (handle edges)
       const p0 = i > 0 ? path[i - 1] : path[i];
       const p1 = path[i];
       const p2 = path[i + 1];
       const p3 = i + 2 < path.length ? path[i + 2] : path[i + 1];
-
-      // Calculate weight based on ORIGINAL snapshot distance (slow movement = thicker)
-      const snapshotDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-      // Inverse relationship: small distance = slow movement = thick line
-      let weight;
-      if (snapshotDist < 5) {
-        weight = 4; // Very slow/stationary
-      } else if (snapshotDist < 20) {
-        weight = 3; // Moderate speed
-      } else if (snapshotDist < 50) {
-        weight = 2.5; // Normal speed
-      } else {
-        weight = 2; // Fast movement
-      }
-
-      // Subdivide the curve into small segments for color gradient
-      const segments = 15;
       for (let seg = 0; seg < segments; seg++) {
         const t1 = seg / segments;
         const t2 = (seg + 1) / segments;
-
         const pt1 = catmullRomPoint(p0, p1, p2, p3, t1);
         const pt2 = catmullRomPoint(p0, p1, p2, p3, t2);
-
-        // Interpolate time between p1 and p2
         const time = p1.time + (p2.time - p1.time) * ((t1 + t2) / 2);
-        const [r, g, b] = timeColor(time);
-
-        stroke(r, g, b, 200);
-        strokeWeight(weight);
-        line(pt1.x, pt1.y, pt2.x, pt2.y);
+        curvePoints.push({ pt1, pt2, time });
       }
+    }
+
+    // Pass 1: White halo for contrast
+    push();
+    noFill();
+    stroke(255, 255, 255, 180);
+    strokeWeight(5);
+    for (const cp of curvePoints) {
+      line(cp.pt1.x, cp.pt1.y, cp.pt2.x, cp.pt2.y);
     }
     pop();
 
+    // Pass 2: Colored path with uniform weight and full opacity
+    push();
+    noFill();
+    strokeWeight(2);
+    for (const cp of curvePoints) {
+      const [r, g, b] = timeColor(cp.time);
+      stroke(r, g, b);
+      line(cp.pt1.x, cp.pt1.y, cp.pt2.x, cp.pt2.y);
+    }
+    pop();
+
+    // Pass 3: Directional arrowheads at regular intervals
+    if (curvePoints.length > 0) {
+      const arrowCount = Math.max(2, Math.floor(curvePoints.length / 20));
+      const step = Math.floor(curvePoints.length / (arrowCount + 1));
+      push();
+      noStroke();
+      for (let a = 1; a <= arrowCount; a++) {
+        const idx = Math.min(a * step, curvePoints.length - 1);
+        const cp = curvePoints[idx];
+        const dx = cp.pt2.x - cp.pt1.x;
+        const dy = cp.pt2.y - cp.pt1.y;
+        const angle = Math.atan2(dy, dx);
+        const [r, g, b] = timeColor(cp.time);
+        fill(r, g, b);
+        push();
+        translate(cp.pt2.x, cp.pt2.y);
+        rotate(angle);
+        triangle(0, 0, -7, -3.5, -7, 3.5);
+        pop();
+      }
+      pop();
+    }
+
     // Draw station markers
     for (const station of stations) {
-      const [r, g, b] = timeColor(station.time);
-
       if (station.isFirst) {
-        // First station: square (Viridis dark purple) - larger size
+        // Start: filled dark circle with white border
         push();
-        fill(68, 1, 84, 180);
-        stroke(255, 255, 255, 200);
+        fill(40, 40, 80);
+        stroke(255);
         strokeWeight(2);
-        rectMode(CENTER);
-        rect(station.x, station.y, 14, 14);
+        circle(station.x, station.y, 12);
         pop();
       } else if (station.isLast) {
-        // Last station: star (red for visibility) - larger size
-        drawStar(station.x, station.y, 8, [255, 0, 0], 180);
+        // End: star marker (kept as requested)
+        const [r, g, b] = timeColor(station.time);
+        drawStar(station.x, station.y, 8, [r, g, b], 255);
         push();
         noFill();
-        stroke(255, 255, 255, 200);
-        strokeWeight(2);
-        drawStar(station.x, station.y, 8, [255, 255, 255], 0); // outline only
+        stroke(255);
+        strokeWeight(1.5);
+        circle(station.x, station.y, 18);
         pop();
       } else {
-        // Intermediate station: circle (time-colored) - larger size
+        // Intermediate station: small muted dot
         push();
-        fill(r, g, b, 180);
-        stroke(255, 255, 255, 200);
-        strokeWeight(2);
-        circle(station.x, station.y, 16);
+        fill(160, 160, 170, 200);
+        stroke(255, 255, 255, 180);
+        strokeWeight(1.5);
+        circle(station.x, station.y, 8);
         pop();
       }
     }
@@ -844,6 +952,21 @@ export function drawMovementPaths(width, height, pieces) {
 
   // Legend moved to HTML side panel (see index.html pathsLegend element)
   // SVG export generates its own legend in buildMovementPathsSvg (controls.js)
+}
+
+// Click handler for the paths view – detects which piece shape was clicked
+export function handlePathsClick(mx, my) {
+  const bounds = drawMovementPaths._pieceBounds;
+  if (!bounds) return false;
+  // Iterate in reverse so topmost (last drawn) piece wins
+  for (let i = bounds.length - 1; i >= 0; i--) {
+    const b = bounds[i];
+    if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+      togglePathsPiece(b.index);
+      return true;
+    }
+  }
+  return false;
 }
 
 // Helper: Get or create cached outline version of piece
@@ -1134,6 +1257,16 @@ function countNeighbors(piece, rows, cols) {
 function sortPiecesForMatrix(pieces, rows, cols, groupingEnabled = true) {
   if (!pieces || pieces.length === 0) return [];
 
+  // Return cached result if inputs haven't changed (avoids O(n²) greedy sort every frame)
+  const indicesKey = pieces.map(p => p.index).join(',');
+  if (_matrixSortCache.result &&
+      _matrixSortCache.pieceIndicesKey === indicesKey &&
+      _matrixSortCache.rows === rows &&
+      _matrixSortCache.cols === cols &&
+      _matrixSortCache.groupingEnabled === groupingEnabled) {
+    return _matrixSortCache.result;
+  }
+
   // First, categorize ALL pieces by corner/edge/center (always needed)
   const corners = [];
   const edges = [];
@@ -1214,7 +1347,16 @@ function sortPiecesForMatrix(pieces, rows, cols, groupingEnabled = true) {
     centerEnd: pieces.length
   };
 
-  return { pieces: sortedPieces, boundaries };
+  const result = { pieces: sortedPieces, boundaries };
+
+  // Store in cache so subsequent frames skip the O(n²) sort
+  _matrixSortCache.result = result;
+  _matrixSortCache.pieceIndicesKey = indicesKey;
+  _matrixSortCache.rows = rows;
+  _matrixSortCache.cols = cols;
+  _matrixSortCache.groupingEnabled = groupingEnabled;
+
+  return result;
 }
 
 export function drawAdjacencyMatrix(width, height, pieces) {
@@ -1293,6 +1435,9 @@ export function drawAdjacencyMatrix(width, height, pieces) {
   const matrixSize = cellSize * n;
   const startX = originX; // Align with puzzle grid frame left
   const startY = originY; // Align with puzzle grid frame top
+
+  // Store layout for lightweight hover-zone detection (used by computeAdjacencyHoverKey)
+  _adjLayout = { startX, startY, cellSize, n, matrixSize };
 
   // Create mapping from piece index to current visual position (interpolated during animation)
   const pieceIndexToVisualRow = new Map();
@@ -2125,8 +2270,161 @@ function drawRGBColorMap(width, height, sortedPieces, matrixSize, matrixStartX, 
 export const dashboardState = {
   overlayEnabled: false,
   selectedPiece: null, // {row, col} of selected cell
+  colorOpacity: 0.85,  // 0.0–1.0: colored silhouette opacity (slider-controlled)
   colormap: 'viridis', // Selected colormap: viridis, plasma, inferno, magma, cividis
+  shapeProfileExpanded: false, // Collapsible shape profile panel (collapsed by default)
+  shapeProfileCustomH: null,   // null = auto height, number = user-dragged height in px
+  shapeProfileSelectedType: null, // null | "corner" | "edge" | "interior" — drill-down popup
 };
+
+// --- Shape profile resize drag state ---
+const _spDrag = {
+  active: false,     // mousedown happened on resize grip
+  resizing: false,   // significant vertical movement detected (>5px)
+  startMouseY: 0,
+  startH: 0,
+};
+
+export function shapeProfileResizeHitTest(mx, my, width, height) {
+  if (!dashboardState.shapeProfileExpanded) return false;
+  const padding = 20;
+  const toggleHeaderH = 28;
+  const shapeProfileFullH = Math.max(110, Math.min(170, height * 0.22));
+  const expandedH = dashboardState.shapeProfileCustomH || shapeProfileFullH;
+  const shapeY = height - padding - expandedH;
+  // Hit zone: 12px band centered on the panel top edge
+  return mx >= padding && mx <= width - padding &&
+         my >= shapeY - 6 && my <= shapeY + 6;
+}
+
+export function startShapeProfileResize(mouseY, canvasHeight) {
+  const shapeProfileFullH = Math.max(110, Math.min(170, canvasHeight * 0.22));
+  _spDrag.active = true;
+  _spDrag.resizing = false;
+  _spDrag.startMouseY = mouseY;
+  _spDrag.startH = dashboardState.shapeProfileCustomH || shapeProfileFullH;
+}
+
+export function updateShapeProfileResize(mouseY, canvasHeight) {
+  if (!_spDrag.active) return false;
+  if (!_spDrag.resizing && Math.abs(mouseY - _spDrag.startMouseY) < 5) return false;
+  _spDrag.resizing = true;
+  const deltaY = _spDrag.startMouseY - mouseY; // drag up = increase height
+  const newH = _spDrag.startH + deltaY;
+  const minH = 90;
+  const maxH = Math.max(minH, canvasHeight - 285); // ensure panels get >=200px
+  dashboardState.shapeProfileCustomH = Math.max(minH, Math.min(maxH, newH));
+  return true;
+}
+
+// Returns true if this was a click (toggle), false if it was a resize drag
+export function stopShapeProfileResize() {
+  const wasActive = _spDrag.active;
+  const wasResizing = _spDrag.resizing;
+  _spDrag.active = false;
+  _spDrag.resizing = false;
+  if (wasActive && !wasResizing) {
+    // No significant movement — treat as click → toggle collapse
+    toggleShapeProfile();
+    return true;
+  }
+  return false;
+}
+
+export function isShapeProfileDragging() {
+  return _spDrag.active;
+}
+
+// --- Incremental caches to avoid recomputing heavy analytics every frame ---
+
+// Movement distance cache: only processes new snapshots incrementally
+const _movementCache = {
+  distances: null,       // Map<"r,c", totalDist>
+  maxDistance: 1,
+  lastSnapCount: 0,
+  prevPositions: null,   // Map<pieceIndex, {x,y}>
+};
+
+// Off-grid analysis cache
+const _offgridCache = {
+  joinTime: null,        // Map<pieceIndex, timestamp>
+  minTime: Infinity,
+  maxTime: -Infinity,
+  lastSnapCount: 0,
+  targetCentersKey: '',  // detect display size changes
+};
+
+// Matrix sort cache: avoids O(n²) greedy nearest-neighbor sort every frame
+const _matrixSortCache = {
+  result: null,
+  pieceIndicesKey: '',
+  rows: -1,
+  cols: -1,
+  groupingEnabled: null,
+};
+
+// Adjacency matrix layout cache: used by computeAdjacencyHoverKey for
+// lightweight diff-based redraw (avoids full O(n²) draw on every mouseMoved)
+let _adjLayout = null; // { startX, startY, cellSize, n, matrixSize }
+
+export function resetDashboardCaches() {
+  _movementCache.distances = null;
+  _movementCache.maxDistance = 1;
+  _movementCache.lastSnapCount = 0;
+  _movementCache.prevPositions = null;
+  _offgridCache.joinTime = null;
+  _offgridCache.minTime = Infinity;
+  _offgridCache.maxTime = -Infinity;
+  _offgridCache.lastSnapCount = 0;
+  _offgridCache.targetCentersKey = '';
+  _matrixSortCache.result = null;
+  _matrixSortCache.pieceIndicesKey = '';
+  _adjLayout = null;
+  _shapeProfileCache.data = null;
+  _shapeProfileCache.pieceCount = 0;
+  _shapeProfileRowBounds = [];
+  _shapeProfilePopupBounds = null;
+  dashboardState.shapeProfileSelectedType = null;
+  // Clear per-piece tinted silhouette caches and edge config
+  for (const p of listPieces()) {
+    if (p._tintedSilMap) p._tintedSilMap = null;
+    if (p._edgeConfig) p._edgeConfig = null;
+  }
+}
+
+/**
+ * Lightweight hover-zone key for the adjacency matrix view.
+ * Returns a short string that changes only when the mouse enters a
+ * visually distinct zone (different cell, different label row/col,
+ * button area, or "outside").  Used by mouseMoved to skip expensive
+ * full redraws when the hover zone hasn't changed.
+ */
+export function computeAdjacencyHoverKey(mx, my) {
+  if (!_adjLayout) return 'o';
+  const { startX, startY, cellSize, n, matrixSize } = _adjLayout;
+
+  // Matrix cell area
+  if (mx >= startX && mx < startX + matrixSize &&
+      my >= startY && my < startY + matrixSize) {
+    const col = Math.floor((mx - startX) / cellSize);
+    const row = Math.floor((my - startY) / cellSize);
+    if (col >= 0 && col < n && row >= 0 && row < n) return `c${row},${col}`;
+  }
+
+  // Top label / palette area (column headers)
+  if (mx >= startX && mx < startX + matrixSize && my < startY) {
+    const col = Math.floor((mx - startX) / cellSize);
+    if (col >= 0 && col < n) return `t${col}`;
+  }
+
+  // Left label / palette area (row headers)
+  if (my >= startY && my < startY + matrixSize && mx < startX) {
+    const row = Math.floor((my - startY) / cellSize);
+    if (row >= 0 && row < n) return `l${row}`;
+  }
+
+  return 'o'; // outside any interactive zone
+}
 
 export function setDashboardOverlay(enabled) {
   dashboardState.overlayEnabled = enabled;
@@ -2136,11 +2434,28 @@ export function setDashboardColormap(colormap) {
   dashboardState.colormap = colormap;
 }
 
+export function setDashboardOpacity(val) {
+  dashboardState.colorOpacity = Math.max(0, Math.min(1, val));
+}
+
 export function setDashboardSelectedPiece(row, col) {
   dashboardState.selectedPiece = row !== null && col !== null ? { row, col } : null;
 }
 
 // Handle dashboard click detection - returns {row, col} if click is on a cell, null otherwise
+export function toggleShapeProfile() {
+  dashboardState.shapeProfileExpanded = !dashboardState.shapeProfileExpanded;
+  dashboardState.shapeProfileSelectedType = null; // close popup on collapse
+}
+
+export function toggleShapeProfileType(typeKey) {
+  if (dashboardState.shapeProfileSelectedType === typeKey) {
+    dashboardState.shapeProfileSelectedType = null;
+  } else {
+    dashboardState.shapeProfileSelectedType = typeKey;
+  }
+}
+
 export function handleDashboardClick(mouseX, mouseY, width, height, rows, cols) {
   if (!rows || !cols) return null;
 
@@ -2149,12 +2464,57 @@ export function handleDashboardClick(mouseX, mouseY, width, height, rows, cols) 
   const gapBetween = 15;
   const availableWidth = width - padding * 2 - gapBetween * 2;
   const panelWidth = availableWidth / 3;
-  const panelHeight = height - padding * 2 - 100; // Reserve space for title and legend
+  const toggleHeaderH = 28;
+  const shapeProfileFullH = Math.max(110, Math.min(170, height * 0.22));
+  const expandedH = dashboardState.shapeProfileCustomH || shapeProfileFullH;
+  const shapeProfileH = dashboardState.shapeProfileExpanded ? expandedH : toggleHeaderH;
+  const panelHeight = height - padding * 2 - 60 - shapeProfileH;
 
   const leftX = padding;
   const centerX = leftX + panelWidth + gapBetween;
   const rightX = centerX + panelWidth + gapBetween;
   const panelY = padding + 35; // Leave space for titles
+
+  // Check shape profile toggle header click
+  const shapeY = height - padding - shapeProfileH;
+  const toggleHitX = padding;
+  const toggleHitW = width - padding * 2;
+  if (!_spDrag.active &&
+      mouseX >= toggleHitX && mouseX <= toggleHitX + toggleHitW &&
+      mouseY >= shapeY && mouseY <= shapeY + toggleHeaderH) {
+    toggleShapeProfile();
+    return { _shapeToggle: true };
+  }
+
+  // Check shape profile row clicks (drill-down popup)
+  if (dashboardState.shapeProfileExpanded && _shapeProfileRowBounds.length > 0) {
+    // Check if clicking inside the popup → ignore (don't close), but handle ✕ button
+    if (_shapeProfilePopupBounds &&
+        mouseX >= _shapeProfilePopupBounds.x && mouseX <= _shapeProfilePopupBounds.x + _shapeProfilePopupBounds.w &&
+        mouseY >= _shapeProfilePopupBounds.y && mouseY <= _shapeProfilePopupBounds.y + _shapeProfilePopupBounds.h) {
+      // Check if click is on the ✕ close button (right side of the 28px header)
+      const popupHeaderH = 28;
+      const closeBtnX = _shapeProfilePopupBounds.x + _shapeProfilePopupBounds.w - 40;
+      if (mouseX >= closeBtnX && mouseY <= _shapeProfilePopupBounds.y + popupHeaderH) {
+        dashboardState.shapeProfileSelectedType = null;
+        return { _shapePopupClose: true };
+      }
+      return { _shapePopupInside: true };
+    }
+    // Check if clicking on a category row
+    for (const rb of _shapeProfileRowBounds) {
+      if (mouseX >= rb.x && mouseX <= rb.x + rb.w &&
+          mouseY >= rb.y && mouseY <= rb.y + rb.h) {
+        toggleShapeProfileType(rb.key);
+        return { _shapeTypeToggle: rb.key };
+      }
+    }
+    // Click outside both rows and popup → close popup
+    if (dashboardState.shapeProfileSelectedType !== null) {
+      dashboardState.shapeProfileSelectedType = null;
+      return { _shapePopupClose: true };
+    }
+  }
 
   // Check which panel was clicked
   let panelX = null;
@@ -2169,11 +2529,15 @@ export function handleDashboardClick(mouseX, mouseY, width, height, rows, cols) 
   }
 
   // Calculate cell position within the panel (MUST MATCH panel draw functions)
-  const cellSize = Math.min(panelWidth / cols, panelHeight / rows);
+  // ALL panels use uniform reserves so matrices are identical in size
+  const topReserve = 50;
+  const legendReserve = 38;
+  const matrixAreaH = panelHeight - topReserve - legendReserve;
+  const cellSize = Math.min(panelWidth / cols, matrixAreaH / rows);
   const matrixW = cellSize * cols;
   const matrixH = cellSize * rows;
   const offsetX = panelX + (panelWidth - matrixW) / 2;
-  const offsetY = panelY + (panelHeight - matrixH) / 2;
+  const offsetY = panelY + topReserve + (matrixAreaH - matrixH) / 2;
 
   // Check if click is within the matrix bounds
   if (mouseX < offsetX || mouseX >= offsetX + matrixW ||
@@ -2205,12 +2569,18 @@ export function drawDashboard(width, height, rows, cols, pieces, elapsedMs) {
     return;
   }
 
-  // Calculate layout - 3 columns with small gaps
+  // Calculate layout - 3 columns with small gaps + collapsible shape profile below
   const padding = 20;
   const gapBetween = 15;
   const availableWidth = width - padding * 2 - gapBetween * 2;
   const panelWidth = availableWidth / 3;
-  const panelHeight = height - padding * 2 - 100; // Reserve space for title and legend
+
+  // Reserve bottom area: full panel when expanded (user-resizable), thin toggle header when collapsed
+  const toggleHeaderH = 28;
+  const shapeProfileFullH = Math.max(110, Math.min(170, height * 0.22));
+  const expandedH = dashboardState.shapeProfileCustomH || shapeProfileFullH;
+  const shapeProfileH = dashboardState.shapeProfileExpanded ? expandedH : toggleHeaderH;
+  const panelHeight = height - padding * 2 - 60 - shapeProfileH;
 
   const leftX = padding;
   const centerX = leftX + panelWidth + gapBetween;
@@ -2239,20 +2609,32 @@ export function drawDashboard(width, height, rows, cols, pieces, elapsedMs) {
 
   // === RIGHT PANEL: Movement Distance ===
   drawDashboardMovementPanel(rightX, panelY, panelWidth, panelHeight, rows, cols, lookup, pieces);
+
+  // === BOTTOM PANEL: Shape Profile (collapsible) ===
+  const shapeY = height - padding - shapeProfileH;
+  if (dashboardState.shapeProfileExpanded) {
+    drawShapeProfilePanel(padding, shapeY, width - padding * 2, shapeProfileH, rows, cols, pieces);
+  } else {
+    // Draw collapsed toggle header only
+    drawShapeProfileToggleHeader(padding, shapeY, width - padding * 2, toggleHeaderH);
+  }
 }
 
 // Helper functions for each panel
 function drawDashboardTimePanel(x, y, w, h, rows, cols, lookup, pieces, elapsedMs) {
   push();
 
-  // Calculate square cell size (smaller dimension determines cell size)
-  const cellSize = Math.min(w / cols, h / rows);
+  // Uniform reserves — all panels use identical values so matrices are the same size
+  const topReserve = 50;
+  const legendReserve = 38;
+  const matrixAreaH = h - topReserve - legendReserve;
+  const cellSize = Math.min(w / cols, matrixAreaH / rows);
   const matrixW = cellSize * cols;
   const matrixH = cellSize * rows;
 
-  // Center the matrix within the panel
+  // Center the matrix within the reserved area
   const offsetX = x + (w - matrixW) / 2;
-  const offsetY = y + (h - matrixH) / 2;
+  const offsetY = y + topReserve + (matrixAreaH - matrixH) / 2;
 
   // Draw background image overlay if enabled
   if (dashboardState.overlayEnabled && window.__currentPuzzleImage) {
@@ -2277,41 +2659,63 @@ function drawDashboardTimePanel(x, y, w, h, rows, cols, lookup, pieces, elapsedM
   const legendMin = Math.min(minTime, legendMax);
   const legendRange = Math.max(1, legendMax - legendMin);
 
-  // Draw heatmap cells (square cells, centered)
-  stroke(210);
-  strokeWeight(1);
+  // Draw heatmap cells as piece shapes
+  const totalOrigW = puzzleMeta.maxX - puzzleMeta.minX;
+  const totalOrigH = puzzleMeta.maxY - puzzleMeta.minY;
+  const pieceScale = (totalOrigW > 0 && totalOrigH > 0)
+    ? Math.min(matrixW / totalOrigW, matrixH / totalOrigH) : 0;
+  const scaledW = totalOrigW * pieceScale;
+  const scaledH = totalOrigH * pieceScale;
+  const centX = offsetX + (matrixW - scaledW) / 2;
+  const centY = offsetY + (matrixH - scaledH) / 2;
+
+  let selBounds = null;
+  const colorFunc = getDashboardColorFunction(dashboardState.colormap);
+  const alpha = Math.round(dashboardState.colorOpacity * 255);
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const p = lookup.get(`${r},${c}`);
+
+      let cr = 230, cg = 230, cb = 230;
+      if (p && typeof p.solvedAt === "number") {
+        const t = (p.solvedAt - legendMin) / legendRange;
+        [cr, cg, cb] = colorFunc(t);
+      }
+
+      const tintedSil = p ? getTintedSilhouette(p, cr, cg, cb, alpha) : null;
+      let cellX, cellY, cellW, cellH;
+      if (tintedSil && pieceScale > 0) {
+        cellX = centX + (p.meta.x - puzzleMeta.minX) * pieceScale;
+        cellY = centY + (p.meta.y - puzzleMeta.minY) * pieceScale;
+        cellW = p.w * pieceScale;
+        cellH = p.h * pieceScale;
+        image(tintedSil, cellX, cellY, cellW, cellH);
+      } else {
+        cellX = offsetX + c * cellSize;
+        cellY = offsetY + r * cellSize;
+        cellW = cellSize;
+        cellH = cellSize;
+        fill(cr, cg, cb, alpha);
+        stroke(210);
+        strokeWeight(1);
+        rect(cellX, cellY, cellW, cellH);
+      }
+
       const isSelected = dashboardState.selectedPiece && 
                          dashboardState.selectedPiece.row === r && 
                          dashboardState.selectedPiece.col === c;
-
-      // Determine cell color
-      const alpha = dashboardState.overlayEnabled ? 180 : 255; // Semi-transparent when overlay is on
-      const colorFunc = getDashboardColorFunction(dashboardState.colormap);
-      if (p && typeof p.solvedAt === "number") {
-        const t = (p.solvedAt - legendMin) / legendRange;
-        const [cr, cg, cb] = colorFunc(t);
-        fill(cr, cg, cb, alpha);
-      } else {
-        fill(230, 230, 230, alpha);
-      }
-
-      const cellX = offsetX + c * cellSize;
-      const cellY = offsetY + r * cellSize;
-      rect(cellX, cellY, cellSize, cellSize);
-
-      // Highlight selected cell
-      if (isSelected) {
-        noFill();
-        stroke(255, 200, 0);
-        strokeWeight(3);
-        rect(cellX, cellY, cellSize, cellSize);
-        strokeWeight(1);
-        stroke(210);
-      }
+      if (isSelected) selBounds = { x: cellX, y: cellY, w: cellW, h: cellH };
     }
+  }
+
+  // Draw selection highlight on top of all pieces
+  if (selBounds) {
+    push();
+    noFill();
+    stroke(50, 130, 240);
+    strokeWeight(2);
+    rect(selBounds.x + 1, selBounds.y + 1, selBounds.w - 2, selBounds.h - 2, 3);
+    pop();
   }
 
   // Draw legend bar below the matrix
@@ -2323,7 +2727,6 @@ function drawDashboardTimePanel(x, y, w, h, rows, cols, lookup, pieces, elapsedM
   const steps = 40;
 
   noStroke();
-  const colorFunc = getDashboardColorFunction(dashboardState.colormap);
   for (let i = 0; i < steps; i++) {
     const t = i / (steps - 1);
     const [cr, cg, cb] = colorFunc(t);
@@ -2358,14 +2761,18 @@ function drawDashboardTimePanel(x, y, w, h, rows, cols, lookup, pieces, elapsedM
 function drawDashboardInteractionPanel(x, y, w, h, rows, cols, lookup, pieces) {
   push();
 
-  // Calculate square cell size (smaller dimension determines cell size)
-  const cellSize = Math.min(w / cols, h / rows);
+  // Uniform reserves — all panels use identical values so matrices are the same size
+  // Top reserve also provides space for the stacked bar chart in this panel
+  const topReserve = 50;
+  const legendReserve = 38;
+  const matrixAreaH = h - topReserve - legendReserve;
+  const cellSize = Math.min(w / cols, matrixAreaH / rows);
   const matrixW = cellSize * cols;
   const matrixH = cellSize * rows;
 
-  // Center the matrix within the panel
+  // Center the matrix within the reserved area
   const offsetX = x + (w - matrixW) / 2;
-  const offsetY = y + (h - matrixH) / 2;
+  const offsetY = y + topReserve + (matrixAreaH - matrixH) / 2;
 
   // Draw background image overlay if enabled
   if (dashboardState.overlayEnabled && window.__currentPuzzleImage) {
@@ -2393,37 +2800,181 @@ function drawDashboardInteractionPanel(x, y, w, h, rows, cols, lookup, pieces) {
     if (total > maxInteractions) maxInteractions = total;
   }
 
-  // Draw heatmap cells (square cells, centered)
-  stroke(210);
-  strokeWeight(1);
+  // --- 100% stacked bar chart for selected piece ---
+  if (dashboardState.selectedPiece) {
+    const selKey = `${dashboardState.selectedPiece.row},${dashboardState.selectedPiece.col}`;
+    const selP = lookup.get(selKey);
+    if (selP) {
+      const selGrabs = (selP.grabs || []).length;
+      const selRots = selP.rotationCount || 0;
+      const selTotal = selGrabs + selRots;
+
+      const barW = Math.min(w * 0.85, 220);
+      const barH = 22;
+      const barX = x + (w - barW) / 2;
+      const gapAbove = offsetY - y;
+      const legendRowH = 16;
+      const barBlockH = barH + 6 + legendRowH;
+      const barY = y + (gapAbove - barBlockH) / 2;
+
+      if (selTotal > 0) {
+        const grabsFrac = selGrabs / selTotal;
+        const rotFrac  = 1 - grabsFrac;
+        const moveW = barW * grabsFrac;
+
+        // Moves segment
+        push();
+        noStroke();
+        fill(80, 152, 220);
+        if (selRots === 0) {
+          rect(barX, barY, barW, barH, 6);
+        } else {
+          rect(barX, barY, moveW, barH, 6, 0, 0, 6);
+        }
+
+        // Rotations segment
+        if (selRots > 0) {
+          fill(245, 172, 66);
+          if (selGrabs === 0) {
+            rect(barX, barY, barW, barH, 6);
+          } else {
+            rect(barX + moveW, barY, barW - moveW, barH, 0, 6, 6, 0);
+          }
+        }
+        pop();
+
+        // Percentage labels inside bar segments
+        push();
+        noStroke();
+        textSize(11);
+        textStyle(BOLD);
+        const pctMoves = `${Math.round(grabsFrac * 100)}%`;
+        const pctRots  = `${Math.round(rotFrac * 100)}%`;
+        const midBarY = barY + barH / 2;
+
+        if (moveW > 36) {
+          fill(255, 255, 255, 230);
+          textAlign(CENTER, CENTER);
+          text(pctMoves, barX + moveW / 2, midBarY);
+        }
+        if (barW - moveW > 36) {
+          fill(255, 255, 255, 230);
+          textAlign(CENTER, CENTER);
+          text(pctRots, barX + moveW + (barW - moveW) / 2, midBarY);
+        }
+        textStyle(NORMAL);
+        pop();
+
+        // Subtle bottom border
+        push();
+        noFill();
+        stroke(0, 0, 0, 18);
+        strokeWeight(1);
+        rect(barX, barY, barW, barH, 6);
+        pop();
+
+        // Legend row below bar — dark text with colored dots
+        const lblY = barY + barH + 6;
+        push();
+        noStroke();
+        textSize(10);
+        textAlign(LEFT, CENTER);
+        const dotR = 4;
+        const movesLabel = `${t("dashboardBarMoves")}: ${selGrabs}`;
+        const rotsLabel  = `${t("dashboardBarRotations")}: ${selRots}`;
+
+        // Measure widths to center the whole legend row
+        const movesLblW = textWidth(movesLabel);
+        const rotsLblW  = textWidth(rotsLabel);
+        const dotGap = 5;
+        const segGap = 16;
+        const totalLblW = (dotR * 2 + dotGap + movesLblW) + segGap + (dotR * 2 + dotGap + rotsLblW);
+        let cx = x + (w - totalLblW) / 2;
+
+        // Moves legend
+        fill(80, 152, 220);
+        circle(cx + dotR, lblY + legendRowH / 2, dotR * 2);
+        fill(70);
+        text(movesLabel, cx + dotR * 2 + dotGap, lblY + legendRowH / 2);
+        cx += dotR * 2 + dotGap + movesLblW + segGap;
+
+        // Rotations legend
+        fill(245, 172, 66);
+        circle(cx + dotR, lblY + legendRowH / 2, dotR * 2);
+        fill(70);
+        text(rotsLabel, cx + dotR * 2 + dotGap, lblY + legendRowH / 2);
+        pop();
+      } else {
+        // No interactions yet
+        push();
+        const barY2 = y + (gapAbove - barH) / 2;
+        noStroke();
+        fill(230);
+        rect(barX, barY2, barW, barH, 6);
+        fill(140);
+        textSize(10);
+        textAlign(CENTER, CENTER);
+        text(t("dashboardBarNoInteraction"), x + w / 2, barY2 + barH / 2);
+        pop();
+      }
+    }
+  }
+
+  // Draw heatmap cells as piece shapes
+  const totalOrigW = puzzleMeta.maxX - puzzleMeta.minX;
+  const totalOrigH = puzzleMeta.maxY - puzzleMeta.minY;
+  const pieceScale = (totalOrigW > 0 && totalOrigH > 0)
+    ? Math.min(matrixW / totalOrigW, matrixH / totalOrigH) : 0;
+  const scaledW = totalOrigW * pieceScale;
+  const scaledH = totalOrigH * pieceScale;
+  const centX = offsetX + (matrixW - scaledW) / 2;
+  const centY = offsetY + (matrixH - scaledH) / 2;
+
+  let selBounds = null;
+  const colorFunc = getDashboardColorFunction(dashboardState.colormap);
+  const alpha = Math.round(dashboardState.colorOpacity * 255);
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
+      const p = lookup.get(`${r},${c}`);
       const count = interactionCounts.get(`${r},${c}`) || 0;
+
+      const t = count / maxInteractions;
+      const [cr, cg, cb] = colorFunc(t);
+
+      const tintedSil = p ? getTintedSilhouette(p, cr, cg, cb, alpha) : null;
+      let cellX, cellY, cellW, cellH;
+      if (tintedSil && pieceScale > 0) {
+        cellX = centX + (p.meta.x - puzzleMeta.minX) * pieceScale;
+        cellY = centY + (p.meta.y - puzzleMeta.minY) * pieceScale;
+        cellW = p.w * pieceScale;
+        cellH = p.h * pieceScale;
+        image(tintedSil, cellX, cellY, cellW, cellH);
+      } else {
+        cellX = offsetX + c * cellSize;
+        cellY = offsetY + r * cellSize;
+        cellW = cellSize;
+        cellH = cellSize;
+        fill(cr, cg, cb, alpha);
+        stroke(210);
+        strokeWeight(1);
+        rect(cellX, cellY, cellW, cellH);
+      }
+
       const isSelected = dashboardState.selectedPiece && 
                          dashboardState.selectedPiece.row === r && 
                          dashboardState.selectedPiece.col === c;
-
-      // Determine cell color based on interaction count
-      const alpha = dashboardState.overlayEnabled ? 180 : 255; // Semi-transparent when overlay is on
-      const colorFunc = getDashboardColorFunction(dashboardState.colormap);
-      const t = count / maxInteractions;
-      const [cr, cg, cb] = colorFunc(t);
-      fill(cr, cg, cb, alpha);
-
-      const cellX = offsetX + c * cellSize;
-      const cellY = offsetY + r * cellSize;
-      rect(cellX, cellY, cellSize, cellSize);
-
-      // Highlight selected cell
-      if (isSelected) {
-        noFill();
-        stroke(255, 200, 0);
-        strokeWeight(3);
-        rect(cellX, cellY, cellSize, cellSize);
-        strokeWeight(1);
-        stroke(210);
-      }
+      if (isSelected) selBounds = { x: cellX, y: cellY, w: cellW, h: cellH };
     }
+  }
+
+  // Draw selection highlight on top of all pieces
+  if (selBounds) {
+    push();
+    noFill();
+    stroke(50, 130, 240);
+    strokeWeight(2);
+    rect(selBounds.x + 1, selBounds.y + 1, selBounds.w - 2, selBounds.h - 2, 3);
+    pop();
   }
 
   // Draw legend bar below the matrix
@@ -2435,7 +2986,6 @@ function drawDashboardInteractionPanel(x, y, w, h, rows, cols, lookup, pieces) {
   const steps = 40;
 
   noStroke();
-  const colorFunc = getDashboardColorFunction(dashboardState.colormap);
   for (let i = 0; i < steps; i++) {
     const t = i / (steps - 1);
     const [cr, cg, cb] = colorFunc(t);
@@ -2462,14 +3012,17 @@ function drawDashboardInteractionPanel(x, y, w, h, rows, cols, lookup, pieces) {
 function drawDashboardMovementPanel(x, y, w, h, rows, cols, lookup, pieces) {
   push();
 
-  // Calculate square cell size (smaller dimension determines cell size)
-  const cellSize = Math.min(w / cols, h / rows);
+  // Uniform reserves — all panels use identical values so matrices are the same size
+  const topReserve = 50;
+  const legendReserve = 38;
+  const matrixAreaH = h - topReserve - legendReserve;
+  const cellSize = Math.min(w / cols, matrixAreaH / rows);
   const matrixW = cellSize * cols;
   const matrixH = cellSize * rows;
 
-  // Center the matrix within the panel
+  // Center the matrix within the reserved area
   const offsetX = x + (w - matrixW) / 2;
-  const offsetY = y + (h - matrixH) / 2;
+  const offsetY = y + topReserve + (matrixAreaH - matrixH) / 2;
 
   // Draw background image overlay if enabled
   if (dashboardState.overlayEnabled && window.__currentPuzzleImage) {
@@ -2479,65 +3032,95 @@ function drawDashboardMovementPanel(x, y, w, h, rows, cols, lookup, pieces) {
     pop();
   }
 
-  // Calculate total distance traveled for each piece from snapshots
-  const distances = new Map();
-  let maxDistance = 1;
-
-  for (const piece of pieces || []) {
-    if (!piece || typeof piece.index === 'undefined') continue;
-
-    let totalDist = 0;
-    let prevPos = null;
-
-    // Iterate through all snapshots and sum up the distances
-    for (const snap of globalSnapshots || []) {
-      const posData = snap.positions[piece.index];
-      if (posData) {
-        const pos = { x: posData.x, y: posData.y };
-        if (prevPos) {
-          // Calculate Euclidean distance between consecutive positions
-          const dist = Math.hypot(pos.x - prevPos.x, pos.y - prevPos.y);
-          totalDist += dist;
+  // Calculate total distance traveled using incremental cache
+  const currentSnapCount = globalSnapshots.length;
+  if (currentSnapCount < _movementCache.lastSnapCount || !_movementCache.distances) {
+    // Snapshots were reset or cache uninitialized — start fresh
+    _movementCache.distances = new Map();
+    _movementCache.prevPositions = new Map();
+    _movementCache.maxDistance = 1;
+    _movementCache.lastSnapCount = 0;
+  }
+  if (currentSnapCount > _movementCache.lastSnapCount) {
+    // Only process NEW snapshots since last cache update
+    for (let si = _movementCache.lastSnapCount; si < currentSnapCount; si++) {
+      const snap = globalSnapshots[si];
+      for (const piece of pieces || []) {
+        if (!piece || typeof piece.index === 'undefined') continue;
+        const posData = snap.positions[piece.index];
+        if (!posData) continue;
+        const prev = _movementCache.prevPositions.get(piece.index);
+        if (prev) {
+          const dist = Math.hypot(posData.x - prev.x, posData.y - prev.y);
+          const key = `${piece.r},${piece.c}`;
+          const existing = _movementCache.distances.get(key) || 0;
+          const newDist = existing + dist;
+          _movementCache.distances.set(key, newDist);
+          if (newDist > _movementCache.maxDistance) _movementCache.maxDistance = newDist;
         }
-        prevPos = pos;
+        _movementCache.prevPositions.set(piece.index, { x: posData.x, y: posData.y });
       }
     }
-
-    distances.set(`${piece.r},${piece.c}`, totalDist);
-    if (totalDist > maxDistance) maxDistance = totalDist;
+    _movementCache.lastSnapCount = currentSnapCount;
   }
+  const distances = _movementCache.distances;
+  const maxDistance = _movementCache.maxDistance;
 
-  // Draw heatmap cells (square cells, centered)
-  stroke(210);
-  strokeWeight(1);
+  // Draw heatmap cells as piece shapes
+  const totalOrigW = puzzleMeta.maxX - puzzleMeta.minX;
+  const totalOrigH = puzzleMeta.maxY - puzzleMeta.minY;
+  const pieceScale = (totalOrigW > 0 && totalOrigH > 0)
+    ? Math.min(matrixW / totalOrigW, matrixH / totalOrigH) : 0;
+  const scaledW = totalOrigW * pieceScale;
+  const scaledH = totalOrigH * pieceScale;
+  const centX = offsetX + (matrixW - scaledW) / 2;
+  const centY = offsetY + (matrixH - scaledH) / 2;
+
+  let selBounds = null;
+  const colorFunc = getDashboardColorFunction(dashboardState.colormap);
+  const alpha = Math.round(dashboardState.colorOpacity * 255);
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
+      const p = lookup.get(`${r},${c}`);
       const dist = distances.get(`${r},${c}`) || 0;
+
+      const t = maxDistance > 0 ? dist / maxDistance : 0;
+      const [cr, cg, cb] = colorFunc(t);
+
+      const tintedSil = p ? getTintedSilhouette(p, cr, cg, cb, alpha) : null;
+      let cellX, cellY, cellW, cellH;
+      if (tintedSil && pieceScale > 0) {
+        cellX = centX + (p.meta.x - puzzleMeta.minX) * pieceScale;
+        cellY = centY + (p.meta.y - puzzleMeta.minY) * pieceScale;
+        cellW = p.w * pieceScale;
+        cellH = p.h * pieceScale;
+        image(tintedSil, cellX, cellY, cellW, cellH);
+      } else {
+        cellX = offsetX + c * cellSize;
+        cellY = offsetY + r * cellSize;
+        cellW = cellSize;
+        cellH = cellSize;
+        fill(cr, cg, cb, alpha);
+        stroke(210);
+        strokeWeight(1);
+        rect(cellX, cellY, cellW, cellH);
+      }
+
       const isSelected = dashboardState.selectedPiece && 
                          dashboardState.selectedPiece.row === r && 
                          dashboardState.selectedPiece.col === c;
-
-      // Determine cell color based on distance traveled
-      const alpha = dashboardState.overlayEnabled ? 180 : 255; // Semi-transparent when overlay is on
-      const colorFunc = getDashboardColorFunction(dashboardState.colormap);
-      const t = maxDistance > 0 ? dist / maxDistance : 0;
-      const [cr, cg, cb] = colorFunc(t);
-      fill(cr, cg, cb, alpha);
-
-      const cellX = offsetX + c * cellSize;
-      const cellY = offsetY + r * cellSize;
-      rect(cellX, cellY, cellSize, cellSize);
-
-      // Highlight selected cell
-      if (isSelected) {
-        noFill();
-        stroke(255, 200, 0);
-        strokeWeight(3);
-        rect(cellX, cellY, cellSize, cellSize);
-        strokeWeight(1);
-        stroke(210);
-      }
+      if (isSelected) selBounds = { x: cellX, y: cellY, w: cellW, h: cellH };
     }
+  }
+
+  // Draw selection highlight on top of all pieces
+  if (selBounds) {
+    push();
+    noFill();
+    stroke(50, 130, 240);
+    strokeWeight(2);
+    rect(selBounds.x + 1, selBounds.y + 1, selBounds.w - 2, selBounds.h - 2, 3);
+    pop();
   }
 
   // Draw legend bar below the matrix
@@ -2549,7 +3132,6 @@ function drawDashboardMovementPanel(x, y, w, h, rows, cols, lookup, pieces) {
   const steps = 40;
 
   noStroke();
-  const colorFunc = getDashboardColorFunction(dashboardState.colormap);
   for (let i = 0; i < steps; i++) {
     const t = i / (steps - 1);
     const [cr, cg, cb] = colorFunc(t);
@@ -2567,8 +3149,839 @@ function drawDashboardMovementPanel(x, y, w, h, rows, cols, lookup, pieces) {
   fill(80);
   textSize(10);
   textAlign(CENTER, TOP);
-  text(`${t("dashboardMovementLegend")} (max: ${Math.round(maxDistance)}px)`,
+  text(`${t("dashboardMovementLegend")} (max: ${Math.round(maxDistance)})`,
        lx + legendW / 2, ly + legendH + 4);
 
   pop();
+}
+
+// ============================================================================
+// SHAPE PROFILE PANEL (dashboard bottom section)
+// ============================================================================
+
+// Cached shape profile data to avoid recomputation every frame
+const _shapeProfileCache = {
+  data: null,       // { corner: {...}, edge: {...}, interior: {...} }
+  pieceCount: 0,
+  snapCount: 0,
+};
+
+// Row bounds for shape profile click detection
+let _shapeProfileRowBounds = []; // [{key, x, y, w, h}, ...]
+// Popup bounds for outside-click detection
+let _shapeProfilePopupBounds = null; // {x, y, w, h} or null
+
+function getShapeProfileData(rows, cols, pieces) {
+  const snapCount = globalSnapshots.length;
+  if (_shapeProfileCache.data &&
+      _shapeProfileCache.pieceCount === pieces.length &&
+      _shapeProfileCache.snapCount === snapCount) {
+    return _shapeProfileCache.data;
+  }
+
+  const types = { corner: [], edge: [], interior: [] };
+  for (const p of pieces) {
+    const t = p.getPieceType(rows, cols);
+    if (types[t]) types[t].push(p);
+  }
+
+  const distances = _movementCache.distances; // reuse movement panel cache
+
+  function aggregate(arr) {
+    if (!arr.length) return { count: 0, grabs: 0, time: 0, rotations: 0, movement: 0, signatures: {}, signatureDetails: {} };
+    let totalGrabs = 0, totalTime = 0, totalRot = 0, totalDist = 0;
+    const sigs = {};
+    const sigDetails = {}; // per-signature: { count, totalGrabs, totalTime, totalRot, totalDist, pieces }
+    for (const p of arr) {
+      const g = (p.grabs || []).length;
+      const r = p.rotationCount || 0;
+      const st = (typeof p.solvedAt === "number" && p.solvedAt > 0) ? p.solvedAt : 0;
+      const d = distances ? (distances.get(`${p.r},${p.c}`) || 0) : 0;
+      totalGrabs += g;
+      totalRot += r;
+      totalTime += st;
+      totalDist += d;
+      const sig = p.getEdgeSignature(rows, cols);
+      sigs[sig] = (sigs[sig] || 0) + 1;
+      if (!sigDetails[sig]) sigDetails[sig] = { count: 0, totalGrabs: 0, totalTime: 0, totalRot: 0, totalDist: 0, pieces: [] };
+      sigDetails[sig].count++;
+      sigDetails[sig].totalGrabs += g;
+      sigDetails[sig].totalTime += st;
+      sigDetails[sig].totalRot += r;
+      sigDetails[sig].totalDist += d;
+      sigDetails[sig].pieces.push(p);
+    }
+    const n = arr.length;
+    return {
+      count: n,
+      grabs: totalGrabs / n,
+      time: totalTime / n,
+      rotations: totalRot / n,
+      movement: totalDist / n,
+      signatures: sigs,
+      signatureDetails: sigDetails,
+      pieces: arr,
+    };
+  }
+
+  const data = {
+    corner:   aggregate(types.corner),
+    edge:     aggregate(types.edge),
+    interior: aggregate(types.interior),
+  };
+
+  // Compute overall averages for weakness detection
+  const totalPieces = pieces.length || 1;
+  const allGrabs = pieces.reduce((s, p) => s + (p.grabs || []).length, 0) / totalPieces;
+  const allRot = pieces.reduce((s, p) => s + (p.rotationCount || 0), 0) / totalPieces;
+  data._avgGrabs = allGrabs;
+  data._avgRotations = allRot;
+
+  _shapeProfileCache.data = data;
+  _shapeProfileCache.pieceCount = pieces.length;
+  _shapeProfileCache.snapCount = snapCount;
+  return data;
+}
+
+// Draw collapsed toggle header for shape profile
+function drawShapeProfileToggleHeader(x, y, w, h) {
+  push();
+
+  // Subtle separator line above
+  stroke(210);
+  strokeWeight(1);
+  line(x, y - 4, x + w, y - 4);
+
+  // Hover detection
+  const hovering = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+
+  // Background — subtle highlight on hover
+  noStroke();
+  fill(hovering ? 240 : 248);
+  rect(x, y, w, h, 4);
+
+  // Title with expand arrow
+  fill(80);
+  textSize(13);
+  textStyle(BOLD);
+  textAlign(LEFT, CENTER);
+  text("▶  " + (t("shapeProfileTitle") || "Alak Profil"), x + 8, y + h / 2);
+  textStyle(NORMAL);
+
+  // Hint on right side
+  fill(160);
+  textSize(10);
+  textAlign(RIGHT, CENTER);
+  text("▼", x + w - 10, y + h / 2);
+
+  pop();
+}
+
+function drawShapeProfilePanel(x, y, w, h, rows, cols, pieces) {
+  push();
+
+  // Resize grip handle — subtle but visible drag indicator above the panel
+  const gripCX = x + w / 2;
+  const hoverGrip = mouseX >= x && mouseX <= x + w && mouseY >= y - 8 && mouseY <= y + 6;
+
+  // Soft background pill behind grip lines (makes them pop without being loud)
+  noStroke();
+  fill(hoverGrip ? 218 : 232, hoverGrip ? 230 : 232);
+  rect(gripCX - 28, y - 10, 56, 12, 6);
+
+  // 3 horizontal grip lines
+  stroke(hoverGrip ? 120 : 170);
+  strokeWeight(hoverGrip ? 2 : 1.5);
+  line(gripCX - 18, y - 8, gripCX + 18, y - 8);
+  line(gripCX - 18, y - 5, gripCX + 18, y - 5);
+  line(gripCX - 18, y - 2, gripCX + 18, y - 2);
+
+  // Clickable toggle header at the top (to collapse)
+  const toggleH = 28;
+  const hovering = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + toggleH;
+  noStroke();
+  fill(hovering ? 240 : 248);
+  rect(x, y, w, toggleH, 4, 4, 0, 0);
+
+  // Title with collapse arrow
+  fill(80);
+  textSize(13);
+  textStyle(BOLD);
+  textAlign(LEFT, CENTER);
+  text("▼  " + (t("shapeProfileTitle") || "Alak Profil"), x + 8, y + toggleH / 2);
+  textStyle(NORMAL);
+
+  // Collapse hint on right
+  fill(160);
+  textSize(10);
+  textAlign(RIGHT, CENTER);
+  text("▲", x + w - 10, y + toggleH / 2);
+
+  const data = getShapeProfileData(rows, cols, pieces);
+  const entries = [
+    { key: "corner",   label: t("shapeCorner") || "Sarok",  color: [80, 152, 220],  data: data.corner },
+    { key: "edge",     label: t("shapeEdge") || "Szél",     color: [76, 175, 80],   data: data.edge },
+    { key: "interior", label: t("shapeInterior") || "Belső", color: [156, 39, 176],  data: data.interior },
+  ];
+
+  // Content area below toggle header
+  const contentY = y + toggleH;
+  const contentH = h - toggleH;
+  const headerH = 22;
+
+  const rowH = Math.max(28, Math.min(52, (contentH - headerH - 8) / 3));
+  const startY = contentY + headerH;
+  const silSize = rowH - 6;
+
+  // Layout for metric bars
+  const labelW = Math.max(80, w * 0.12);
+  const warningW = 28; // space for ⚠ indicators + click arrow
+  const barAreaX = x + silSize + 8 + labelW;
+  const barAreaW = w - silSize - 8 - labelW - warningW - 10;
+  const metricW = barAreaW / 4;
+  const barH = Math.max(6, rowH * 0.28);
+  const valLabelGap = 3; // gap between bar bottom and value text center
+  const barUnitH = barH + valLabelGap + 10; // bar + gap + ~10px text
+
+  // Normalization: compute max values across all categories
+  let maxGrabs = 1, maxTime = 1, maxRot = 1, maxMove = 1;
+  for (const e of entries) {
+    if (e.data.grabs > maxGrabs) maxGrabs = e.data.grabs;
+    if (e.data.time > maxTime) maxTime = e.data.time;
+    if (e.data.rotations > maxRot) maxRot = e.data.rotations;
+    if (e.data.movement > maxMove) maxMove = e.data.movement;
+  }
+
+  // Draw metric column headers
+  push();
+  noStroke();
+  fill(110);
+  textSize(10);
+  textAlign(CENTER, CENTER);
+  const metricLabels = [
+    t("shapeMetricGrabs") || "Elkapás",
+    t("shapeMetricRotations") || "Forgatás",
+    t("shapeMetricTime") || "Idő",
+    t("shapeMetricMovement") || "Mozgás"
+  ];
+  for (let m = 0; m < 4; m++) {
+    text(metricLabels[m], barAreaX + m * metricW + metricW / 2, contentY + headerH / 2);
+  }
+  pop();
+
+  // Reset row bounds for click detection
+  _shapeProfileRowBounds = [];
+
+  // Draw each row — Level 1: categories with metric bars
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    const ry = startY + i * rowH;
+    const isSelected = dashboardState.shapeProfileSelectedType === e.key;
+
+    // Store row bounds for click detection (drill-down popup)
+    _shapeProfileRowBounds.push({ key: e.key, x: x, y: ry, w: w, h: rowH });
+
+    // Row hover highlight
+    const rowHover = mouseX >= x && mouseX <= x + w && mouseY >= ry && mouseY <= ry + rowH;
+    if (rowHover || isSelected) {
+      noStroke();
+      fill(isSelected ? 230 : 240, isSelected ? 238 : 245, 255);
+      rect(x, ry, w, rowH);
+    }
+
+    // Piece silhouette thumbnail (pick first piece of this type)
+    if (e.data.pieces && e.data.pieces.length > 0) {
+      const rep = e.data.pieces[0];
+      const sil = getWhiteSilhouette(rep);
+      if (sil) {
+        const aspect = rep.w / rep.h;
+        let sw = silSize, sh = silSize;
+        if (aspect > 1) sh = silSize / aspect; else sw = silSize * aspect;
+        push();
+        tint(e.color[0], e.color[1], e.color[2], 180);
+        image(sil, x + 6 + (silSize - sw) / 2, ry + (rowH - sh) / 2, sw, sh);
+        noTint();
+        pop();
+      }
+    }
+
+    // Label + count
+    noStroke();
+    fill(60);
+    textSize(11);
+    textStyle(BOLD);
+    textAlign(LEFT, CENTER);
+    text(`${e.label} (${e.data.count})`, x + silSize + 14, ry + rowH / 2);
+    textStyle(NORMAL);
+
+    // --- 4 metric bars ---
+    const metrics = [
+      { val: e.data.grabs,       max: maxGrabs,        color: [80, 152, 220] },
+      { val: e.data.rotations,   max: maxRot,          color: [156, 39, 176] },
+      { val: e.data.time / 1000, max: maxTime / 1000,  color: [245, 172, 66] },
+      { val: e.data.movement,    max: maxMove,         color: [76, 175, 80] }
+    ];
+    // Center the bar+label unit vertically within the row
+    const barY = ry + Math.max(2, Math.round((rowH - barUnitH) / 2));
+
+    for (let m = 0; m < 4; m++) {
+      const mx = barAreaX + m * metricW + 2;
+      const mw = metricW - 4;
+      const frac = metrics[m].max > 0 ? metrics[m].val / metrics[m].max : 0;
+      const filledW = mw * Math.min(1, frac);
+      const mc = metrics[m].color;
+
+      // Bar background
+      push();
+      noStroke();
+      fill(230);
+      rect(mx, barY, mw, barH, 3);
+
+      // Filled portion
+      fill(mc[0], mc[1], mc[2], 200);
+      if (filledW > 0) rect(mx, barY, filledW, barH, 3);
+      pop();
+
+      // Value label
+      push();
+      noStroke();
+      fill(80);
+      textSize(9);
+      textAlign(CENTER, TOP);
+      let valText;
+      if (m === 2) valText = metrics[m].val.toFixed(1) + "s"; // time
+      else if (m === 3) valText = Math.round(metrics[m].val).toString(); // movement
+      else valText = metrics[m].val.toFixed(1);
+      text(valText, mx + mw / 2, barY + barH + valLabelGap);
+      pop();
+    }
+
+    // --- Weakness warning ---
+    const avgGrabs = data._avgGrabs || 1;
+    const avgRot = data._avgRotations || 1;
+    const grabRatio = avgGrabs > 0 ? e.data.grabs / avgGrabs : 0;
+    const rotRatio = avgRot > 0 ? e.data.rotations / avgRot : 0;
+    const worstRatio = Math.max(grabRatio, rotRatio);
+
+    if (worstRatio > 1.5 && e.data.count > 0) {
+      push();
+      noStroke();
+      textSize(12);
+      textAlign(LEFT, CENTER);
+      const warnX = barAreaX + barAreaW + 4;
+      if (worstRatio > 2.0) {
+        fill(200, 40, 40);
+        text("⚠⚠", warnX, ry + rowH / 2);
+      } else {
+        fill(220, 150, 30);
+        text("⚠", warnX, ry + rowH / 2);
+      }
+      pop();
+    }
+
+    // Click hint arrow on the right (drill-down to Level 2)
+    fill(isSelected ? 80 : 160);
+    textSize(12);
+    textAlign(RIGHT, CENTER);
+    text(isSelected ? "▾" : "▸", x + w - 12, ry + rowH / 2);
+
+    // Subtle bottom separator
+    if (i < entries.length - 1) {
+      stroke(230);
+      strokeWeight(1);
+      line(x + silSize + 10, ry + rowH - 1, x + w - 10, ry + rowH - 1);
+    }
+  }
+
+  // --- Draw drill-down popup if a type is selected ---
+  _shapeProfilePopupBounds = null;
+  if (dashboardState.shapeProfileSelectedType) {
+    const selEntry = entries.find(e => e.key === dashboardState.shapeProfileSelectedType);
+    if (selEntry && selEntry.data.count > 0) {
+      drawShapeProfilePopup(x, y, w, h, selEntry, data, rows, cols, startY, rowH, entries);
+    }
+  }
+
+  pop();
+}
+
+// Draw the drill-down popup for a selected shape category
+function drawShapeProfilePopup(panelX, panelY, panelW, panelH, entry, data, rows, cols, rowStartY, rowH, allEntries) {
+  const sigDetails = entry.data.signatureDetails || {};
+  const sigEntries = Object.entries(sigDetails).sort((a, b) => b[1].count - a[1].count);
+  if (sigEntries.length === 0) return;
+
+  // Popup dimensions
+  const popupPadding = 12;
+  const headerH = 28;
+  const colHeaderH = 22;
+  const sigRowH = 40;
+  const descSectionH = 44; // description text + F/T/B legend
+  const popupContentH = descSectionH + colHeaderH + sigEntries.length * sigRowH + 8;
+  const popupW = Math.min(500, panelW * 0.75);
+  const popupH = Math.min(headerH + popupPadding * 2 + popupContentH, height - 40);
+
+  // Position: centered on the canvas
+  const popupX = (width - popupW) / 2;
+  const popupY = (height - popupH) / 2;
+
+  // Store popup bounds for click-through detection
+  _shapeProfilePopupBounds = { x: popupX, y: popupY, w: popupW, h: popupH };
+
+  push();
+
+  // Dark backdrop overlay
+  noStroke();
+  fill(0, 0, 0, 100);
+  rect(0, 0, width, height);
+
+  // Shadow
+  noStroke();
+  fill(0, 0, 0, 30);
+  rect(popupX + 3, popupY + 3, popupW, popupH, 8);
+
+  // Background
+  fill(255, 255, 255, 250);
+  stroke(180);
+  strokeWeight(1);
+  rect(popupX, popupY, popupW, popupH, 8);
+
+  // Header bar
+  noStroke();
+  fill(entry.color[0], entry.color[1], entry.color[2], 30);
+  rect(popupX, popupY, popupW, headerH, 8, 8, 0, 0);
+
+  fill(entry.color[0], entry.color[1], entry.color[2]);
+  textSize(12);
+  textStyle(BOLD);
+  textAlign(LEFT, CENTER);
+  text(`${entry.label} (${entry.data.count})`, popupX + popupPadding, popupY + headerH / 2);
+  textStyle(NORMAL);
+
+  fill(140);
+  textSize(10);
+  textAlign(RIGHT, CENTER);
+  text("✕", popupX + popupW - popupPadding, popupY + headerH / 2);
+
+  // --- Description section: edge order + F/T/B legend ---
+  const edgeBadgeColors = {
+    F: [120, 180, 220],
+    T: [100, 200, 120],
+    B: [220, 140, 100]
+  };
+  const descStartY = popupY + headerH + popupPadding;
+  noStroke();
+  fill(100);
+  textSize(10);
+  textAlign(LEFT, CENTER);
+  text(t("edgeLegendOrder") || "Edge order: Top \u2192 Right \u2192 Bottom \u2192 Left", popupX + popupPadding, descStartY + 8);
+  const legY = descStartY + 26;
+  const legItemW = (popupW - popupPadding * 2) / 3;
+  const legItems = [
+    { ch: "F", color: edgeBadgeColors.F, label: t("edgeFlat") || "Flat (border edge)" },
+    { ch: "T", color: edgeBadgeColors.T, label: t("edgeTab") || "Tab (protrusion)" },
+    { ch: "B", color: edgeBadgeColors.B, label: t("edgeBlank") || "Blank (indentation)" },
+  ];
+  textSize(9);
+  for (let li = 0; li < legItems.length; li++) {
+    const item = legItems[li];
+    const lx = popupX + popupPadding + li * legItemW;
+    noStroke();
+    fill(item.color[0], item.color[1], item.color[2], 200);
+    rect(lx, legY - 8, 16, 16, 3);
+    fill(255);
+    textStyle(BOLD);
+    textAlign(CENTER, CENTER);
+    text(item.ch, lx + 8, legY);
+    textStyle(NORMAL);
+    fill(80);
+    textAlign(LEFT, CENTER);
+    text("= " + item.label, lx + 20, legY);
+  }
+
+  // --- Layout: left section = signature badges + count, right = 4 metric bars ---
+  const badgeSectionW = 104; // 4 badges × 19px + count label space
+  const barAreaX = popupX + popupPadding + badgeSectionW;
+  const barAreaW = popupW - popupPadding * 2 - badgeSectionW;
+  const metricW = barAreaW / 4;
+
+  // Normalize max values across all signature groups
+  let maxGrabs = 1, maxTime = 1, maxRot = 1, maxMove = 1;
+  for (const [, detail] of sigEntries) {
+    const n = detail.count || 1;
+    if (detail.totalGrabs / n > maxGrabs) maxGrabs = detail.totalGrabs / n;
+    if (detail.totalTime / n > maxTime) maxTime = detail.totalTime / n;
+    if (detail.totalRot / n > maxRot) maxRot = detail.totalRot / n;
+    if (detail.totalDist / n > maxMove) maxMove = detail.totalDist / n;
+  }
+
+  // Column headers
+  let cy = popupY + headerH + popupPadding + descSectionH;
+  const metricLabels = [
+    t("shapeMetricGrabs") || "Grabs",
+    t("shapeMetricRotations") || "Rotations",
+    t("shapeMetricTime") || "Time",
+    t("shapeMetricMovement") || "Movement"
+  ];
+  push();
+  noStroke();
+  fill(110);
+  textSize(10);
+  textAlign(CENTER, CENTER);
+  for (let m = 0; m < 4; m++) {
+    text(metricLabels[m], barAreaX + m * metricW + metricW / 2, cy + colHeaderH / 2);
+  }
+  pop();
+  cy += colHeaderH;
+
+  // Separator
+  stroke(220);
+  strokeWeight(1);
+  line(popupX + popupPadding, cy, popupX + popupW - popupPadding, cy);
+  cy += 4;
+
+  // --- Signature rows with metric bars ---
+  const barH = 8;
+  const valLabelGap = 2;
+  const barUnitH = barH + valLabelGap + 10;
+
+  for (const [sig, detail] of sigEntries) {
+    if (cy + sigRowH > popupY + popupH - 4) break;
+
+    // Row hover highlight
+    const rHover = mouseX >= popupX + popupPadding && mouseX <= popupX + popupW - popupPadding &&
+                   mouseY >= cy && mouseY <= cy + sigRowH;
+    if (rHover) {
+      noStroke();
+      fill(245, 248, 255);
+      rect(popupX + popupPadding - 4, cy, popupW - popupPadding * 2 + 8, sigRowH, 4);
+    }
+
+    // Signature badges (F/T/B per edge)
+    let bx = popupX + popupPadding;
+    for (let ci = 0; ci < sig.length && ci < 4; ci++) {
+      const ch = sig[ci];
+      const bc = edgeBadgeColors[ch] || [160, 160, 160];
+      noStroke();
+      fill(bc[0], bc[1], bc[2], 200);
+      rect(bx, cy + (sigRowH - 16) / 2, 16, 16, 3);
+      fill(255);
+      textSize(9);
+      textStyle(BOLD);
+      textAlign(CENTER, CENTER);
+      text(ch, bx + 8, cy + sigRowH / 2);
+      textStyle(NORMAL);
+      bx += 19;
+    }
+
+    // Count label
+    noStroke();
+    fill(100);
+    textSize(10);
+    textAlign(LEFT, CENTER);
+    text(`×${detail.count}`, bx + 2, cy + sigRowH / 2);
+
+    // Metric bars (averages per piece within this signature group)
+    const n = detail.count || 1;
+    const metrics = [
+      { val: detail.totalGrabs / n,         max: maxGrabs,        color: [80, 152, 220] },
+      { val: detail.totalRot / n,           max: maxRot,          color: [156, 39, 176] },
+      { val: detail.totalTime / n / 1000,   max: maxTime / 1000,  color: [245, 172, 66] },
+      { val: detail.totalDist / n,          max: maxMove,         color: [76, 175, 80] }
+    ];
+
+    const barY = cy + Math.round((sigRowH - barUnitH) / 2);
+
+    for (let m = 0; m < 4; m++) {
+      const mx = barAreaX + m * metricW + 2;
+      const mw = metricW - 4;
+      const frac = metrics[m].max > 0 ? metrics[m].val / metrics[m].max : 0;
+      const filledW = mw * Math.min(1, frac);
+      const mc = metrics[m].color;
+
+      push();
+      noStroke();
+      fill(230);
+      rect(mx, barY, mw, barH, 3);
+      fill(mc[0], mc[1], mc[2], 200);
+      if (filledW > 0) rect(mx, barY, filledW, barH, 3);
+      pop();
+
+      push();
+      noStroke();
+      fill(80);
+      textSize(9);
+      textAlign(CENTER, TOP);
+      let valText;
+      if (m === 2) valText = metrics[m].val.toFixed(1) + "s";
+      else if (m === 3) valText = Math.round(metrics[m].val).toString();
+      else valText = metrics[m].val.toFixed(1);
+      text(valText, mx + mw / 2, barY + barH + valLabelGap);
+      pop();
+    }
+
+    cy += sigRowH;
+  }
+
+  pop();
+}
+
+// ============================================================================
+// OFF-GRID ASSEMBLIES VIEW
+// ============================================================================
+
+// Selection state: solvedAt value of the selected placement group (null = no selection)
+let offgridSelectedSolvedAt = null;
+
+export function clearOffGridSelection() {
+  offgridSelectedSolvedAt = null;
+}
+
+export function drawOffGridAssemblies(width, height, pieces) {
+  const allPieces = listPieces();
+  if (!allPieces.length || !globalSnapshots.length) {
+    push();
+    fill(100);
+    textAlign(CENTER, CENTER);
+    textSize(14);
+    text(t("offgridNoData") || "No off-grid assemblies detected yet.", width / 2, height / 2);
+    pop();
+    drawOffGridAssemblies._pieceBounds = [];
+    return;
+  }
+
+  const { originX, originY, W, H, s } = gridRectScaled(width, height);
+
+  // Build a lookup: pieceIndex → piece object
+  const pieceByIndex = new Map();
+  for (const p of allPieces) {
+    if (p && typeof p.index !== 'undefined') pieceByIndex.set(p.index, p);
+  }
+
+  // --- Analyze snapshots using incremental cache ---
+  const currentSnapCount = globalSnapshots.length;
+  const cacheKey = `${originX.toFixed(1)},${originY.toFixed(1)},${s.toFixed(4)}`;
+
+  if (currentSnapCount < _offgridCache.lastSnapCount || !_offgridCache.joinTime
+      || _offgridCache.targetCentersKey !== cacheKey) {
+    // Snapshots were reset or display changed — start fresh
+    _offgridCache.joinTime = new Map();
+    _offgridCache.minTime = Infinity;
+    _offgridCache.maxTime = -Infinity;
+    _offgridCache.lastSnapCount = 0;
+    _offgridCache.targetCentersKey = cacheKey;
+  }
+
+  // Target centers for "is piece at target?" check
+  const targetCenters = new Map();
+  for (const p of allPieces) {
+    if (!p || typeof p.index === 'undefined') continue;
+    const tx = originX + (p.meta.x - puzzleMeta.minX) * s + (p.sw || 0) / 2;
+    const ty = originY + (p.meta.y - puzzleMeta.minY) * s + (p.sh || 0) / 2;
+    targetCenters.set(p.index, { x: tx, y: ty });
+  }
+
+  const snapThreshold = Math.max(10, (allPieces[0] && allPieces[0].sw || 50) * 0.15);
+
+  if (currentSnapCount > _offgridCache.lastSnapCount) {
+    // Only process NEW snapshots
+    for (let si = _offgridCache.lastSnapCount; si < currentSnapCount; si++) {
+      const snap = globalSnapshots[si];
+      const groupMembers = new Map();
+      for (const [idxStr, posData] of Object.entries(snap.positions)) {
+        const idx = parseInt(idxStr, 10);
+        const gid = posData.groupId;
+        if (gid == null) continue;
+        if (!groupMembers.has(gid)) groupMembers.set(gid, []);
+        groupMembers.get(gid).push(idx);
+      }
+
+      for (const [gid, members] of groupMembers) {
+        if (members.length < 2) continue;
+        let hasOffGridMember = false;
+        for (const idx of members) {
+          const posData = snap.positions[idx];
+          const tgt = targetCenters.get(idx);
+          if (!posData || !tgt) continue;
+          const d = Math.hypot(posData.x - tgt.x, posData.y - tgt.y);
+          if (d > snapThreshold) { hasOffGridMember = true; break; }
+        }
+        if (!hasOffGridMember) continue;
+        for (const idx of members) {
+          if (!_offgridCache.joinTime.has(idx)) {
+            _offgridCache.joinTime.set(idx, snap.t);
+            if (snap.t < _offgridCache.minTime) _offgridCache.minTime = snap.t;
+            if (snap.t > _offgridCache.maxTime) _offgridCache.maxTime = snap.t;
+          }
+        }
+      }
+    }
+    _offgridCache.lastSnapCount = currentSnapCount;
+  }
+
+  const offgridJoinTime = _offgridCache.joinTime;
+
+  // --- Build placement groups: solvedAt → Set of piece indices ---
+  const placementGroups = new Map();
+  for (const pp of allPieces) {
+    if (!pp || typeof pp.solvedAt !== 'number') continue;
+    if (!placementGroups.has(pp.solvedAt)) placementGroups.set(pp.solvedAt, new Set());
+    placementGroups.get(pp.solvedAt).add(pp.index);
+  }
+
+  // Set of selected piece indices (all pieces that share the selectedSolvedAt)
+  const selectedSet = new Set();
+  if (offgridSelectedSolvedAt !== null && placementGroups.has(offgridSelectedSolvedAt)) {
+    for (const idx of placementGroups.get(offgridSelectedSolvedAt)) {
+      selectedSet.add(idx);
+    }
+  }
+
+  // --- Compute time range for coloring (from cache) ---
+  const minTime = _offgridCache.minTime;
+  const maxTime = _offgridCache.maxTime;
+  const timeRange = maxTime > minTime ? maxTime - minTime : 1;
+
+  // --- Draw background ---
+  background(245);
+
+  // Draw grid area outline
+  push();
+  noFill();
+  stroke(200);
+  strokeWeight(2);
+  rect(originX + 0.5, originY + 0.5, W, H, 6);
+  pop();
+
+  // --- Draw title ---
+  push();
+  fill(50);
+  textSize(16);
+  textAlign(CENTER, TOP);
+  text(t("offgridTitle") || "Off-grid Assemblies", width / 2, 12);
+  textSize(11);
+  fill(100);
+  text(
+    t("offgridClickHint") || "Click to select and inspect individual separate groups.",
+    width / 2,
+    34
+  );
+  pop();
+
+  if (offgridJoinTime.size === 0) {
+    push();
+    fill(120);
+    textAlign(CENTER, CENTER);
+    textSize(13);
+    text(t("offgridNoData") || "No off-grid assemblies detected yet.", width / 2, height / 2);
+    pop();
+    drawOffGridAssemblies._pieceBounds = [];
+    return;
+  }
+
+  // --- Draw piece silhouettes colored by off-grid join time ---
+  const colorFunc = getDashboardColorFunction(dashboardState.colormap);
+  const pieceBounds = [];
+
+  for (const pp of allPieces) {
+    if (!pp || typeof pp.index === 'undefined' || !pp.img) continue;
+
+    // Target position on grid
+    const px = originX + (pp.meta.x - puzzleMeta.minX) * s;
+    const py = originY + (pp.meta.y - puzzleMeta.minY) * s;
+    const pw = pp.sw || 0;
+    const ph = pp.sh || 0;
+
+    const sil = getWhiteSilhouette(pp);
+    if (!sil) continue;
+
+    const isSelected = selectedSet.has(pp.index);
+    const joinTime = offgridJoinTime.get(pp.index);
+
+    push();
+    if (isSelected) {
+      // Selected group → red fill
+      tint(220, 50, 50, 240);
+    } else if (joinTime !== undefined) {
+      // Off-grid assembly — color by time
+      const tn = (joinTime - minTime) / timeRange;
+      const [cr, cg, cb] = colorFunc(tn);
+      tint(cr, cg, cb, 230);
+    } else {
+      // Never part of an off-grid assembly — faint gray
+      tint(200, 200, 200, 80);
+    }
+    image(sil, px, py, pw, ph);
+    pop();
+
+    // Store bounds for click hit-testing
+    pieceBounds.push({ index: pp.index, solvedAt: pp.solvedAt, x: px, y: py, w: pw, h: ph });
+  }
+
+  // Expose piece bounds for click handler
+  drawOffGridAssemblies._pieceBounds = pieceBounds;
+
+  // --- Draw selection border around selected group pieces ---
+  if (selectedSet.size > 0) {
+    for (const b of pieceBounds) {
+      if (!selectedSet.has(b.index)) continue;
+      push();
+      noFill();
+      stroke(180, 30, 30);
+      strokeWeight(2);
+      rect(b.x + 1, b.y + 1, b.w - 2, b.h - 2, 3);
+      pop();
+    }
+  }
+
+  // --- Draw legend bar ---
+  const legendW = Math.min(W * 0.5, 200);
+  const legendH = 12;
+  const lx = (width - legendW) / 2;
+  const ly = height - 50;
+  const steps = 40;
+
+  push();
+  noStroke();
+  for (let i = 0; i < steps; i++) {
+    const tn = i / (steps - 1);
+    const [cr, cg, cb] = colorFunc(tn);
+    fill(cr, cg, cb);
+    rect(lx + (legendW * i) / steps, ly, legendW / steps + 0.5, legendH);
+  }
+
+  // Legend border
+  stroke(200);
+  noFill();
+  rect(lx, ly, legendW, legendH);
+
+  // Legend labels
+  noStroke();
+  fill(80);
+  textSize(10);
+  textAlign(RIGHT, CENTER);
+  text(t("offgridLegendEarly") || "Earlier", lx - 5, ly + legendH / 2);
+  textAlign(LEFT, CENTER);
+  text(t("offgridLegendLate") || "Later", lx + legendW + 5, ly + legendH / 2);
+  pop();
+}
+
+export function handleOffGridClick(mx, my) {
+  const bounds = drawOffGridAssemblies._pieceBounds;
+  if (!bounds) return false;
+  // Iterate in reverse so topmost (last drawn) piece wins
+  for (let i = bounds.length - 1; i >= 0; i--) {
+    const b = bounds[i];
+    if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+      if (typeof b.solvedAt !== 'number') continue;
+      // Toggle: if clicking on same group → deselect; otherwise → select new group
+      if (offgridSelectedSolvedAt === b.solvedAt) {
+        offgridSelectedSolvedAt = null;
+      } else {
+        offgridSelectedSolvedAt = b.solvedAt;
+      }
+      return true;
+    }
+  }
+  return false;
 }
