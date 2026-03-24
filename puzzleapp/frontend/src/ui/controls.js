@@ -1,5 +1,5 @@
-﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState, puzzleMeta, bounds, addGlobalSnapshot, globalSnapshots, connectionsState, resetGlobalSnapshots, gameSettings, setHoverPiece, viewSettings, recordPieceInteraction, resetPieceInteractionMatrix, completionState, setPuzzleComplete, setShowingComplete, setImageHintEnabled } from "../canvas/state.js";
-import { drawPiece, dashboardState, setDashboardOverlay, setDashboardColormap, setDashboardSelectedPiece } from "../canvas/draw.js";
+﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState, puzzleMeta, bounds, addGlobalSnapshot, globalSnapshots, connectionsState, resetGlobalSnapshots, gameSettings, setHoverPiece, viewSettings, recordPieceInteraction, resetPieceInteractionMatrix, completionState, setPuzzleComplete, setShowingComplete, setImageHintEnabled, clearPathsSelection, pathsState } from "../canvas/state.js";
+import { drawPiece, dashboardState, setDashboardOverlay, setDashboardColormap, setDashboardOpacity, setDashboardSelectedPiece, clearOffGridSelection, resetDashboardCaches } from "../canvas/draw.js";
 import { PuzzlePiece } from "../canvas/piece.js";
 import { Group } from "../canvas/group.js";
 import { clampPiece, clampPieceOutsideGrid, averagePieceDiagonal, mergeWithSolvedNeighbors, targetTopLeft } from "../canvas/interaction.js";
@@ -486,19 +486,27 @@ function buildMovementPathsSvg() {
 
   const allPieces = listPieces();
 
-  // Helper: time-based color
+  // Helper: time-based color using selected colormap
   function timeColorSvg(t) {
     const clamped = Math.max(0, Math.min(1, t));
-    if (clamped < 0.33) {
-      const k = clamped / 0.33;
-      return `rgb(0, ${Math.round(255 * k)}, ${Math.round(255 * (1 - k))})`;
-    } else if (clamped < 0.66) {
-      const k = (clamped - 0.33) / 0.33;
-      return `rgb(${Math.round(255 * k)}, 255, 0)`;
-    } else {
-      const k = (clamped - 0.66) / 0.34;
-      return `rgb(255, ${Math.round(255 * (1 - k))}, 0)`;
-    }
+    const colormapColors = {
+      viridis: [[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]],
+      plasma:  [[13,8,135],[126,3,168],[204,71,120],[248,149,64],[252,253,191]],
+      inferno: [[0,0,4],[87,16,110],[188,55,84],[249,142,9],[252,255,164]],
+      magma:   [[0,0,4],[81,18,124],[183,55,121],[251,136,97],[252,253,191]],
+      cividis: [[0,32,77],[61,92,122],[122,134,104],[194,175,88],[253,231,37]],
+      seismic: [[0,0,76],[0,0,255],[255,255,255],[255,0,0],[128,0,0]]
+    };
+    const colors = colormapColors[pathsState.colormap] || colormapColors.viridis;
+    const idx = clamped * (colors.length - 1);
+    const i = Math.floor(idx);
+    const f = idx - i;
+    if (i >= colors.length - 1) { const c = colors[colors.length - 1]; return `rgb(${c[0]},${c[1]},${c[2]})`; }
+    const c1 = colors[i], c2 = colors[i + 1];
+    const r = Math.round(c1[0] + (c2[0] - c1[0]) * f);
+    const g = Math.round(c1[1] + (c2[1] - c1[1]) * f);
+    const b = Math.round(c1[2] + (c2[2] - c1[2]) * f);
+    return `rgb(${r},${g},${b})`;
   }
 
   // Helper: compute target center for a piece in current scale
@@ -774,6 +782,8 @@ function updateAnalyticsDesc() {
   else if (styleState.analyticsView === "connections") analyticsDesc.textContent = t("analyticsDescConnections");
   else if (styleState.analyticsView === "paths") analyticsDesc.textContent = t("analyticsDescPaths");
   else if (styleState.analyticsView === "adjacency") analyticsDesc.textContent = t("analyticsDescAdjacency");
+  else if (styleState.analyticsView === "dashboard") analyticsDesc.textContent = t("analyticsDescDashboard");
+  else if (styleState.analyticsView === "offgrid") analyticsDesc.textContent = t("analyticsDescOffgrid");
   else analyticsDesc.textContent = t("analyticsDescNone");
 }
 
@@ -1351,6 +1361,7 @@ async function runPuzzleLoad(formData) {
 
   // create initial global snapshot and register per-piece snapshot indices
   resetGlobalSnapshots();
+  resetDashboardCaches();
   resetPieceInteractionMatrix(); // Reset interaction matrix for new game
   lastGrabbedPieceIndex = null; // Reset last grabbed piece tracker
   const initSnap = addGlobalSnapshot(listPieces());
@@ -1425,7 +1436,8 @@ export function wireControls() {
       "paths": "analyticsDescPaths",
       "adjacency": "analyticsDescAdjacency",
       "wrong": "analyticsDescWrong",
-      "dashboard": "analyticsDescDashboard"
+      "dashboard": "analyticsDescDashboard",
+      "offgrid": "analyticsDescOffgrid"
     };
     const key = viewMap[styleState.analyticsView] || "analyticsDescNone";
     analyticsDesc.textContent = t(key);
@@ -1445,10 +1457,47 @@ export function wireControls() {
     }
   };
 
+  // Gradient CSS strings for each colormap
+  const colormapGradients = {
+    viridis: 'linear-gradient(to right, rgb(68,1,84), rgb(59,82,139), rgb(33,145,140), rgb(94,201,98), rgb(253,231,37))',
+    plasma:  'linear-gradient(to right, rgb(13,8,135), rgb(126,3,168), rgb(204,71,120), rgb(248,149,64), rgb(252,253,191))',
+    inferno: 'linear-gradient(to right, rgb(0,0,4), rgb(87,16,110), rgb(188,55,84), rgb(249,142,9), rgb(252,255,164))',
+    magma:   'linear-gradient(to right, rgb(0,0,4), rgb(81,18,124), rgb(183,55,121), rgb(251,136,97), rgb(252,253,191))',
+    cividis: 'linear-gradient(to right, rgb(0,32,77), rgb(61,92,122), rgb(122,134,104), rgb(194,175,88), rgb(253,231,37))',
+    seismic: 'linear-gradient(to right, rgb(0,0,76), rgb(0,0,255), rgb(255,255,255), rgb(255,0,0), rgb(128,0,0))'
+  };
+
+  const pathsColormapSelect = document.getElementById('pathsColormap');
+  if (pathsColormapSelect) {
+    pathsColormapSelect.value = pathsState.colormap || 'viridis';
+    pathsColormapSelect.addEventListener('change', () => {
+      pathsState.colormap = pathsColormapSelect.value || 'viridis';
+      // Update gradient bar
+      const bar = document.getElementById('pathsGradientBar');
+      if (bar) bar.style.background = colormapGradients[pathsState.colormap] || colormapGradients.viridis;
+      redraw();
+    });
+  }
+
   const updateDashboardUI = () => {
     const dashboardControls = document.getElementById('dashboardControls');
+    const overlayRow = document.getElementById('dashboardOverlayRow');
+    const colormapRow = document.getElementById('dashboardColormapRow');
+    const opacityRow = document.getElementById('dashboardOpacityRow');
+    const view = styleState.analyticsView;
+    // Show controls panel for dashboard, offgrid, or normal view
+    const showControls = view === 'dashboard' || view === 'offgrid' || view === 'none';
     if (dashboardControls) {
-      dashboardControls.style.display = styleState.analyticsView === 'dashboard' ? 'block' : 'none';
+      dashboardControls.style.display = showControls ? 'block' : 'none';
+    }
+    if (overlayRow) {
+      overlayRow.style.display = view === 'dashboard' ? '' : 'none';
+    }
+    if (colormapRow) {
+      colormapRow.style.display = (view === 'dashboard' || view === 'offgrid') ? '' : 'none';
+    }
+    if (opacityRow) {
+      opacityRow.style.display = view === 'dashboard' ? '' : 'none';
     }
   };
 
@@ -1457,6 +1506,9 @@ export function wireControls() {
   if (analyticsView) {
     styleState.analyticsView = analyticsView.value || "none";
     updateAnalyticsDesc();
+    updateConnectionsUI();
+    updatePathsUI();
+    updateDashboardUI();
     analyticsView.addEventListener('change', () => {
       styleState.analyticsView = analyticsView.value || "none";
       updateAnalyticsDesc();
@@ -1471,6 +1523,14 @@ export function wireControls() {
       // Clear dashboard selection when leaving dashboard view
       if (styleState.analyticsView !== "dashboard") {
         setDashboardSelectedPiece(null, null);
+      }
+      // Clear paths selection when leaving paths view
+      if (styleState.analyticsView !== "paths") {
+        clearPathsSelection();
+      }
+      // Clear off-grid selection when leaving offgrid view
+      if (styleState.analyticsView !== "offgrid") {
+        clearOffGridSelection();
       }
       redraw();
     });
@@ -1503,6 +1563,16 @@ export function wireControls() {
     dashboardColormap.value = dashboardState.colormap; // Set initial value
     dashboardColormap.addEventListener('change', () => {
       setDashboardColormap(dashboardColormap.value);
+      redraw();
+    });
+  }
+
+  // Dashboard opacity slider
+  const dashboardOpacity = document.getElementById('dashboardOpacity');
+  if (dashboardOpacity) {
+    dashboardOpacity.value = Math.round(dashboardState.colorOpacity * 100);
+    dashboardOpacity.addEventListener('input', () => {
+      setDashboardOpacity(parseInt(dashboardOpacity.value, 10) / 100);
       redraw();
     });
   }
@@ -1975,10 +2045,11 @@ export function wireControls() {
         window.__groups = listGroups();
         // reset global snapshots after shuffle
         resetGlobalSnapshots();
+        resetDashboardCaches();
         const sidx = addGlobalSnapshot(listPieces());
         for (const p of listPieces()) p.snapshots = [sidx];
         // reset per-piece solved state and analytics
-        for (const p of listPieces()) { p.solved = false; p.solvedAt = null; p.grabs = []; }
+        for (const p of listPieces()) { p.solved = false; p.solvedAt = null; p.grabs = []; p.rotationCount = 0; }
         // clear hover piece
         setHoverPiece(null);
         // restart timer / start over
@@ -1991,9 +2062,10 @@ export function wireControls() {
       window.__groups = listGroups();
       // reset global snapshots after shuffle
       resetGlobalSnapshots();
+      resetDashboardCaches();
       const sidx = addGlobalSnapshot(listPieces());
       for (const p of listPieces()) p.snapshots = [sidx];
-      for (const p of listPieces()) { p.solved = false; p.solvedAt = null; p.grabs = []; }
+      for (const p of listPieces()) { p.solved = false; p.solvedAt = null; p.grabs = []; p.rotationCount = 0; }
       setHoverPiece(null);
       stopTimer(); resetTimer(); startTimer();
       redraw();
@@ -2011,6 +2083,7 @@ export function wireControls() {
     window.__pieces = [];
     window.__groups = [];
     resetGlobalSnapshots();
+    resetDashboardCaches();
     setHoverPiece(null);
     stopTimer();
     resetTimer();
