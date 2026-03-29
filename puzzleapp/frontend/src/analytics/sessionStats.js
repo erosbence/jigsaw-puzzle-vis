@@ -424,7 +424,7 @@ function isValidGameData(game) {
   if (typeof game.rotationEnabled !== 'boolean') return false;
 
   // Validate allowed sizes
-  const allowedSizes = ['2x2', '3x3', '4x4', '5x5', '6x6', '8x8'];
+  const allowedSizes = ['2x2', '3x3', '4x4', '5x5', '6x6', '8x8', '10x10'];
   if (!allowedSizes.includes(game.size)) return false;
 
   // Validate reasonable ranges

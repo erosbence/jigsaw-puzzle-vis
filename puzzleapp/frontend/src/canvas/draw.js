@@ -34,13 +34,15 @@ function getWhiteSilhouette(piece) {
 }
 
 // Pre-tinted silhouette cache: avoids expensive tint()+image() every frame.
-// The white silhouette is recolored once per unique (r,g,b,alpha) and cached
-// on the piece object.  Up to 4 entries per piece (3 dashboard panels + spare).
-function getTintedSilhouette(piece, cr, cg, cb, alpha) {
+// The white silhouette is recolored once per unique (r,g,b) and cached on the
+// piece object.  Opacity is applied at draw time via drawingContext.globalAlpha
+// so that slider changes never invalidate this cache.
+// Up to 4 entries per piece (3 dashboard panels + spare).
+function getTintedSilhouette(piece, cr, cg, cb) {
   const sil = getWhiteSilhouette(piece);
   if (!sil) return null;
 
-  const key = `${cr},${cg},${cb},${alpha}`;
+  const key = `${cr},${cg},${cb}`;
   if (!piece._tintedSilMap) piece._tintedSilMap = {};
   if (piece._tintedSilMap[key]) return piece._tintedSilMap[key];
 
@@ -52,7 +54,6 @@ function getTintedSilhouette(piece, cr, cg, cb, alpha) {
       img.pixels[i]     = cr;
       img.pixels[i + 1] = cg;
       img.pixels[i + 2] = cb;
-      img.pixels[i + 3] = Math.round(img.pixels[i + 3] * alpha / 255);
     }
   }
   img.updatePixels();
@@ -121,13 +122,16 @@ export function drawConnections(width, height, pieces) {
     const storedSh = stored.sh || 1;
     const storedMetaX = stored.metaX;
     const storedMetaY = stored.metaY;
-    const storedTargetX = originX + (storedMetaX - puzzleMeta.minX) * s + storedSw / 2;
-    const storedTargetY = originY + (storedMetaY - puzzleMeta.minY) * s + storedSh / 2;
+    const curSw = currentPiece.sw || 1;
+    const sStored  = (stored.snapS      != null) ? stored.snapS      : s * (storedSw / curSw);
+    const oxStored = (stored.snapOriginX != null) ? stored.snapOriginX : originX;
+    const oyStored = (stored.snapOriginY != null) ? stored.snapOriginY : originY;
+    const storedTargetX = oxStored + (storedMetaX - puzzleMeta.minX) * sStored + storedSw / 2;
+    const storedTargetY = oyStored + (storedMetaY - puzzleMeta.minY) * sStored + storedSh / 2;
     const dx = stored.x - storedTargetX;
     const dy = stored.y - storedTargetY;
     const curTarget = targetCenter(currentPiece);
-    const curSw = currentPiece.sw || 1;
-    const scale = curSw / (storedSw || curSw || 1);
+    const scale = s / sStored;
     return { x: curTarget.x + dx * scale, y: curTarget.y + dy * scale };
   }
   for (const pp of allPieces) {
@@ -660,18 +664,18 @@ export function drawMovementPaths(width, height, pieces) {
     const storedSh = stored.sh || 1;
     const storedMetaX = stored.metaX;
     const storedMetaY = stored.metaY;
-    // Compute where the target center was in the snapshot's coordinate system
-    const storedTargetX = originX + (storedMetaX - puzzleMeta.minX) * s + storedSw / 2;
-    const storedTargetY = originY + (storedMetaY - puzzleMeta.minY) * s + storedSh / 2;
-    // Compute offset from target in snapshot
+    const curSw = currentPiece.sw || 1;
+    const sStored  = (stored.snapS      != null) ? stored.snapS      : s * (storedSw / curSw);
+    const oxStored = (stored.snapOriginX != null) ? stored.snapOriginX : originX;
+    const oyStored = (stored.snapOriginY != null) ? stored.snapOriginY : originY;
+    // Compute where the target center was at snapshot time
+    const storedTargetX = oxStored + (storedMetaX - puzzleMeta.minX) * sStored + storedSw / 2;
+    const storedTargetY = oyStored + (storedMetaY - puzzleMeta.minY) * sStored + storedSh / 2;
+    // Compute offset from target in snapshot and apply to current target
     const dx = stored.x - storedTargetX;
     const dy = stored.y - storedTargetY;
-    // Get current target center
     const curTarget = targetCenter(currentPiece);
-    const curSw = currentPiece.sw || 1;
-    // Scale factor between stored size and current size
-    const scale = curSw / (storedSw || curSw || 1);
-    // Apply scaled offset to current target
+    const scale = s / sStored;
     return { x: curTarget.x + dx * scale, y: curTarget.y + dy * scale };
   }
 
@@ -704,7 +708,6 @@ export function drawMovementPaths(width, height, pieces) {
     return g;
   }
 
-  // Store bounding boxes for click detection
   const pieceBounds = [];
   for (const pp of allPieces) {
     if (!pp || typeof pp.index === 'undefined' || !pp.img) continue;
@@ -2269,12 +2272,15 @@ function drawRGBColorMap(width, height, sortedPieces, matrixSize, matrixStartX, 
 // Dashboard state
 export const dashboardState = {
   overlayEnabled: false,
+  overlayGrayscale: false,
+  _grayscalePuzzleImage: null,
   selectedPiece: null, // {row, col} of selected cell
   colorOpacity: 0.85,  // 0.0–1.0: colored silhouette opacity (slider-controlled)
   colormap: 'viridis', // Selected colormap: viridis, plasma, inferno, magma, cividis
   shapeProfileExpanded: false, // Collapsible shape profile panel (collapsed by default)
   shapeProfileCustomH: null,   // null = auto height, number = user-dragged height in px
   shapeProfileSelectedType: null, // null | "corner" | "edge" | "interior" — drill-down popup
+  shapeProfilePopupScrollY: 0, // scroll offset for drill-down popup content
 };
 
 // --- Shape profile resize drag state ---
@@ -2380,6 +2386,7 @@ export function resetDashboardCaches() {
   _matrixSortCache.result = null;
   _matrixSortCache.pieceIndicesKey = '';
   _adjLayout = null;
+  dashboardState._grayscalePuzzleImage = null;
   _shapeProfileCache.data = null;
   _shapeProfileCache.pieceCount = 0;
   _shapeProfileRowBounds = [];
@@ -2430,6 +2437,10 @@ export function setDashboardOverlay(enabled) {
   dashboardState.overlayEnabled = enabled;
 }
 
+export function setDashboardOverlayGrayscale(val) {
+  dashboardState.overlayGrayscale = val;
+}
+
 export function setDashboardColormap(colormap) {
   dashboardState.colormap = colormap;
 }
@@ -2454,6 +2465,17 @@ export function toggleShapeProfileType(typeKey) {
   } else {
     dashboardState.shapeProfileSelectedType = typeKey;
   }
+  dashboardState.shapeProfilePopupScrollY = 0; // reset scroll on open/close
+}
+
+export function handleShapeProfilePopupWheel(deltaY) {
+  if (!dashboardState.shapeProfileSelectedType || !_shapeProfilePopupBounds) return false;
+  const b = _shapeProfilePopupBounds;
+  if (mouseX < b.x || mouseX > b.x + b.w || mouseY < b.y || mouseY > b.y + b.h) return false;
+  const maxScroll = _shapeProfilePopupMaxScroll || 0;
+  if (maxScroll <= 0) return false;
+  dashboardState.shapeProfilePopupScrollY = Math.max(0, Math.min(maxScroll, dashboardState.shapeProfilePopupScrollY + deltaY * 0.5));
+  return true;
 }
 
 export function handleDashboardClick(mouseX, mouseY, width, height, rows, cols) {
@@ -2557,6 +2579,18 @@ export function handleDashboardClick(mouseX, mouseY, width, height, rows, cols) 
   return null;
 }
 
+// Module-level helper: get or create cached grayscale version of the full puzzle image
+function getGrayscalePuzzleImage() {
+  if (dashboardState._grayscalePuzzleImage) return dashboardState._grayscalePuzzleImage;
+  const src = window.__currentPuzzleImage;
+  if (!src) return null;
+  const g = createImage(src.width, src.height);
+  g.copy(src, 0, 0, src.width, src.height, 0, 0, src.width, src.height);
+  g.filter(GRAY);
+  dashboardState._grayscalePuzzleImage = g;
+  return g;
+}
+
 // Main dashboard draw function
 export function drawDashboard(width, height, rows, cols, pieces, elapsedMs) {
   if (!rows || !cols) {
@@ -2640,7 +2674,8 @@ function drawDashboardTimePanel(x, y, w, h, rows, cols, lookup, pieces, elapsedM
   if (dashboardState.overlayEnabled && window.__currentPuzzleImage) {
     push();
     tint(255, 115); // 115/255 ≈ 45% opacity
-    image(window.__currentPuzzleImage, offsetX, offsetY, matrixW, matrixH);
+    const overlayImg = dashboardState.overlayGrayscale ? getGrayscalePuzzleImage() : window.__currentPuzzleImage;
+    if (overlayImg) image(overlayImg, offsetX, offsetY, matrixW, matrixH);
     pop();
   }
 
@@ -2671,7 +2706,7 @@ function drawDashboardTimePanel(x, y, w, h, rows, cols, lookup, pieces, elapsedM
 
   let selBounds = null;
   const colorFunc = getDashboardColorFunction(dashboardState.colormap);
-  const alpha = Math.round(dashboardState.colorOpacity * 255);
+  drawingContext.globalAlpha = dashboardState.colorOpacity;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const p = lookup.get(`${r},${c}`);
@@ -2682,7 +2717,7 @@ function drawDashboardTimePanel(x, y, w, h, rows, cols, lookup, pieces, elapsedM
         [cr, cg, cb] = colorFunc(t);
       }
 
-      const tintedSil = p ? getTintedSilhouette(p, cr, cg, cb, alpha) : null;
+      const tintedSil = p ? getTintedSilhouette(p, cr, cg, cb) : null;
       let cellX, cellY, cellW, cellH;
       if (tintedSil && pieceScale > 0) {
         cellX = centX + (p.meta.x - puzzleMeta.minX) * pieceScale;
@@ -2695,7 +2730,7 @@ function drawDashboardTimePanel(x, y, w, h, rows, cols, lookup, pieces, elapsedM
         cellY = offsetY + r * cellSize;
         cellW = cellSize;
         cellH = cellSize;
-        fill(cr, cg, cb, alpha);
+        fill(cr, cg, cb);
         stroke(210);
         strokeWeight(1);
         rect(cellX, cellY, cellW, cellH);
@@ -2707,6 +2742,7 @@ function drawDashboardTimePanel(x, y, w, h, rows, cols, lookup, pieces, elapsedM
       if (isSelected) selBounds = { x: cellX, y: cellY, w: cellW, h: cellH };
     }
   }
+  drawingContext.globalAlpha = 1;
 
   // Draw selection highlight on top of all pieces
   if (selBounds) {
@@ -2778,7 +2814,8 @@ function drawDashboardInteractionPanel(x, y, w, h, rows, cols, lookup, pieces) {
   if (dashboardState.overlayEnabled && window.__currentPuzzleImage) {
     push();
     tint(255, 115); // 115/255 ≈ 45% opacity
-    image(window.__currentPuzzleImage, offsetX, offsetY, matrixW, matrixH);
+    const overlayImg = dashboardState.overlayGrayscale ? getGrayscalePuzzleImage() : window.__currentPuzzleImage;
+    if (overlayImg) image(overlayImg, offsetX, offsetY, matrixW, matrixH);
     pop();
   }
 
@@ -2932,7 +2969,7 @@ function drawDashboardInteractionPanel(x, y, w, h, rows, cols, lookup, pieces) {
 
   let selBounds = null;
   const colorFunc = getDashboardColorFunction(dashboardState.colormap);
-  const alpha = Math.round(dashboardState.colorOpacity * 255);
+  drawingContext.globalAlpha = dashboardState.colorOpacity;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const p = lookup.get(`${r},${c}`);
@@ -2941,7 +2978,7 @@ function drawDashboardInteractionPanel(x, y, w, h, rows, cols, lookup, pieces) {
       const t = count / maxInteractions;
       const [cr, cg, cb] = colorFunc(t);
 
-      const tintedSil = p ? getTintedSilhouette(p, cr, cg, cb, alpha) : null;
+      const tintedSil = p ? getTintedSilhouette(p, cr, cg, cb) : null;
       let cellX, cellY, cellW, cellH;
       if (tintedSil && pieceScale > 0) {
         cellX = centX + (p.meta.x - puzzleMeta.minX) * pieceScale;
@@ -2954,7 +2991,7 @@ function drawDashboardInteractionPanel(x, y, w, h, rows, cols, lookup, pieces) {
         cellY = offsetY + r * cellSize;
         cellW = cellSize;
         cellH = cellSize;
-        fill(cr, cg, cb, alpha);
+        fill(cr, cg, cb);
         stroke(210);
         strokeWeight(1);
         rect(cellX, cellY, cellW, cellH);
@@ -2966,6 +3003,7 @@ function drawDashboardInteractionPanel(x, y, w, h, rows, cols, lookup, pieces) {
       if (isSelected) selBounds = { x: cellX, y: cellY, w: cellW, h: cellH };
     }
   }
+  drawingContext.globalAlpha = 1;
 
   // Draw selection highlight on top of all pieces
   if (selBounds) {
@@ -3028,7 +3066,8 @@ function drawDashboardMovementPanel(x, y, w, h, rows, cols, lookup, pieces) {
   if (dashboardState.overlayEnabled && window.__currentPuzzleImage) {
     push();
     tint(255, 115); // 115/255 ≈ 45% opacity
-    image(window.__currentPuzzleImage, offsetX, offsetY, matrixW, matrixH);
+    const overlayImg = dashboardState.overlayGrayscale ? getGrayscalePuzzleImage() : window.__currentPuzzleImage;
+    if (overlayImg) image(overlayImg, offsetX, offsetY, matrixW, matrixH);
     pop();
   }
 
@@ -3078,7 +3117,7 @@ function drawDashboardMovementPanel(x, y, w, h, rows, cols, lookup, pieces) {
 
   let selBounds = null;
   const colorFunc = getDashboardColorFunction(dashboardState.colormap);
-  const alpha = Math.round(dashboardState.colorOpacity * 255);
+  drawingContext.globalAlpha = dashboardState.colorOpacity;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const p = lookup.get(`${r},${c}`);
@@ -3087,7 +3126,7 @@ function drawDashboardMovementPanel(x, y, w, h, rows, cols, lookup, pieces) {
       const t = maxDistance > 0 ? dist / maxDistance : 0;
       const [cr, cg, cb] = colorFunc(t);
 
-      const tintedSil = p ? getTintedSilhouette(p, cr, cg, cb, alpha) : null;
+      const tintedSil = p ? getTintedSilhouette(p, cr, cg, cb) : null;
       let cellX, cellY, cellW, cellH;
       if (tintedSil && pieceScale > 0) {
         cellX = centX + (p.meta.x - puzzleMeta.minX) * pieceScale;
@@ -3100,7 +3139,7 @@ function drawDashboardMovementPanel(x, y, w, h, rows, cols, lookup, pieces) {
         cellY = offsetY + r * cellSize;
         cellW = cellSize;
         cellH = cellSize;
-        fill(cr, cg, cb, alpha);
+        fill(cr, cg, cb);
         stroke(210);
         strokeWeight(1);
         rect(cellX, cellY, cellW, cellH);
@@ -3112,6 +3151,7 @@ function drawDashboardMovementPanel(x, y, w, h, rows, cols, lookup, pieces) {
       if (isSelected) selBounds = { x: cellX, y: cellY, w: cellW, h: cellH };
     }
   }
+  drawingContext.globalAlpha = 1;
 
   // Draw selection highlight on top of all pieces
   if (selBounds) {
@@ -3450,14 +3490,14 @@ function drawShapeProfilePanel(x, y, w, h, rows, cols, pieces) {
       textAlign(CENTER, TOP);
       let valText;
       if (m === 2) valText = metrics[m].val.toFixed(1) + "s"; // time
-      else if (m === 3) valText = Math.round(metrics[m].val).toString(); // movement
+      else if (m === 3) valText = Math.round(metrics[m].val).toString() + "px"; // movement
       else valText = metrics[m].val.toFixed(1);
       text(valText, mx + mw / 2, barY + barH + valLabelGap);
       pop();
     }
 
     // --- Weakness warning ---
-    const avgGrabs = data._avgGrabs || 1;
+   /* const avgGrabs = data._avgGrabs || 1;
     const avgRot = data._avgRotations || 1;
     const grabRatio = avgGrabs > 0 ? e.data.grabs / avgGrabs : 0;
     const rotRatio = avgRot > 0 ? e.data.rotations / avgRot : 0;
@@ -3477,7 +3517,7 @@ function drawShapeProfilePanel(x, y, w, h, rows, cols, pieces) {
         text("⚠", warnX, ry + rowH / 2);
       }
       pop();
-    }
+    }*/
 
     // Click hint arrow on the right (drill-down to Level 2)
     fill(isSelected ? 80 : 160);
@@ -3504,6 +3544,8 @@ function drawShapeProfilePanel(x, y, w, h, rows, cols, pieces) {
 
   pop();
 }
+
+let _shapeProfilePopupMaxScroll = 0; // max scroll range for popup content
 
 // Draw the drill-down popup for a selected shape category
 function drawShapeProfilePopup(panelX, panelY, panelW, panelH, entry, data, rows, cols, rowStartY, rowH, allEntries) {
@@ -3640,16 +3682,40 @@ function drawShapeProfilePopup(panelX, panelY, panelW, panelH, entry, data, rows
   line(popupX + popupPadding, cy, popupX + popupW - popupPadding, cy);
   cy += 4;
 
-  // --- Signature rows with metric bars ---
+  // --- Signature rows with metric bars (scrollable) ---
   const barH = 8;
   const valLabelGap = 2;
   const barUnitH = barH + valLabelGap + 10;
 
+  // Calculate scrollable area
+  const scrollAreaTop = cy;
+  const scrollAreaBottom = popupY + popupH - 4;
+  const scrollAreaH = scrollAreaBottom - scrollAreaTop;
+  const totalRowsH = sigEntries.length * sigRowH;
+  const maxScroll = Math.max(0, totalRowsH - scrollAreaH);
+  _shapeProfilePopupMaxScroll = maxScroll;
+
+  // Clamp scroll offset
+  const scrollY = Math.max(0, Math.min(maxScroll, dashboardState.shapeProfilePopupScrollY));
+  dashboardState.shapeProfilePopupScrollY = scrollY;
+
+  // Clip to scrollable content area
+  drawingContext.save();
+  drawingContext.beginPath();
+  drawingContext.rect(popupX, scrollAreaTop, popupW, scrollAreaH);
+  drawingContext.clip();
+
+  // Apply scroll offset
+  cy -= scrollY;
+
   for (const [sig, detail] of sigEntries) {
-    if (cy + sigRowH > popupY + popupH - 4) break;
+    // Skip rows completely outside the visible area (optimization)
+    if (cy + sigRowH < scrollAreaTop) { cy += sigRowH; continue; }
+    if (cy > scrollAreaBottom) { cy += sigRowH; continue; }
 
     // Row hover highlight
-    const rHover = mouseX >= popupX + popupPadding && mouseX <= popupX + popupW - popupPadding &&
+    const rHover = mouseY >= scrollAreaTop && mouseY <= scrollAreaBottom &&
+                   mouseX >= popupX + popupPadding && mouseX <= popupX + popupW - popupPadding &&
                    mouseY >= cy && mouseY <= cy + sigRowH;
     if (rHover) {
       noStroke();
@@ -3714,13 +3780,31 @@ function drawShapeProfilePopup(panelX, panelY, panelW, panelH, entry, data, rows
       textAlign(CENTER, TOP);
       let valText;
       if (m === 2) valText = metrics[m].val.toFixed(1) + "s";
-      else if (m === 3) valText = Math.round(metrics[m].val).toString();
+      else if (m === 3) valText = Math.round(metrics[m].val).toString() + "px";
       else valText = metrics[m].val.toFixed(1);
       text(valText, mx + mw / 2, barY + barH + valLabelGap);
       pop();
     }
 
     cy += sigRowH;
+  }
+
+  // Restore clipping
+  drawingContext.restore();
+
+  // Draw scrollbar if content overflows
+  if (maxScroll > 0) {
+    const sbW = 6;
+    const sbX = popupX + popupW - sbW - 4;
+    const sbTrackH = scrollAreaH;
+    const sbThumbH = Math.max(20, sbTrackH * (scrollAreaH / totalRowsH));
+    const sbThumbY = scrollAreaTop + (scrollY / maxScroll) * (sbTrackH - sbThumbH);
+
+    noStroke();
+    fill(0, 0, 0, 20);
+    rect(sbX, scrollAreaTop, sbW, sbTrackH, 3);
+    fill(0, 0, 0, 60);
+    rect(sbX, sbThumbY, sbW, sbThumbH, 3);
   }
 
   pop();
@@ -3829,6 +3913,14 @@ export function drawOffGridAssemblies(width, height, pieces) {
     placementGroups.get(pp.solvedAt).add(pp.index);
   }
 
+  // Set of piece indices placed as part of a multi-piece assembly (≥2 pieces with same solvedAt)
+  const assemblyPlacedSet = new Set();
+  for (const [, members] of placementGroups) {
+    if (members.size >= 2) {
+      for (const idx of members) assemblyPlacedSet.add(idx);
+    }
+  }
+
   // Set of selected piece indices (all pieces that share the selectedSolvedAt)
   const selectedSet = new Set();
   if (offgridSelectedSolvedAt !== null && placementGroups.has(offgridSelectedSolvedAt)) {
@@ -3868,7 +3960,7 @@ export function drawOffGridAssemblies(width, height, pieces) {
   );
   pop();
 
-  if (offgridJoinTime.size === 0) {
+  if (offgridJoinTime.size === 0 || assemblyPlacedSet.size === 0) {
     push();
     fill(120);
     textAlign(CENTER, CENTER);
@@ -3897,25 +3989,27 @@ export function drawOffGridAssemblies(width, height, pieces) {
 
     const isSelected = selectedSet.has(pp.index);
     const joinTime = offgridJoinTime.get(pp.index);
+    // Only color if placed as part of a multi-piece assembly (not individually)
+    const isAssemblyPiece = joinTime !== undefined && assemblyPlacedSet.has(pp.index);
 
     push();
     if (isSelected) {
       // Selected group → red fill
       tint(220, 50, 50, 240);
-    } else if (joinTime !== undefined) {
-      // Off-grid assembly — color by time
+    } else if (isAssemblyPiece) {
+      // Off-grid assembly placed as group — color by time
       const tn = (joinTime - minTime) / timeRange;
       const [cr, cg, cb] = colorFunc(tn);
       tint(cr, cg, cb, 230);
     } else {
-      // Never part of an off-grid assembly — faint gray
-      tint(200, 200, 200, 80);
+      // Not part of an off-grid assembly placement — solid gray
+      tint(180, 180, 180, 200);
     }
     image(sil, px, py, pw, ph);
     pop();
 
     // Store bounds for click hit-testing
-    pieceBounds.push({ index: pp.index, solvedAt: pp.solvedAt, x: px, y: py, w: pw, h: ph });
+    pieceBounds.push({ index: pp.index, solvedAt: pp.solvedAt, x: px, y: py, w: pw, h: ph, isAssembly: isAssemblyPiece });
   }
 
   // Expose piece bounds for click handler
@@ -3973,7 +4067,7 @@ export function handleOffGridClick(mx, my) {
   for (let i = bounds.length - 1; i >= 0; i--) {
     const b = bounds[i];
     if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
-      if (typeof b.solvedAt !== 'number') continue;
+      if (typeof b.solvedAt !== 'number' || !b.isAssembly) continue;
       // Toggle: if clicking on same group → deselect; otherwise → select new group
       if (offgridSelectedSolvedAt === b.solvedAt) {
         offgridSelectedSolvedAt = null;

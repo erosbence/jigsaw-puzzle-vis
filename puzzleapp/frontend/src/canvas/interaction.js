@@ -83,8 +83,17 @@ export function groupAlphaHit(g, px, py) {
   // but skip pieces that are clearly outside click area for quick rejection
   for (let i = arr.length - 1; i >= 0; i--) {
     const piece = arr[i];
-    // Quick bounding box pre-check before expensive hit test
-    if (px < piece.x || py < piece.y || px >= piece.x + piece.sw || py >= piece.y + piece.sh) continue;
+    const rot = piece.rotation || 0;
+    if (Math.abs(rot % 180) > 1 && Math.abs(piece.sw - piece.sh) > 2) {
+      // Rotated non-square piece: use circular check to avoid rejecting valid hits
+      const cx = piece.x + piece.sw / 2;
+      const cy = piece.y + piece.sh / 2;
+      const maxDist = Math.sqrt(piece.sw * piece.sw + piece.sh * piece.sh) / 2;
+      if (Math.hypot(px - cx, py - cy) > maxDist) continue;
+    } else {
+      // Quick bounding box pre-check before expensive hit test
+      if (px < piece.x || py < piece.y || px >= piece.x + piece.sw || py >= piece.y + piece.sh) continue;
+    }
     if (piece.hit(px, py)) return true;
   }
   return false;

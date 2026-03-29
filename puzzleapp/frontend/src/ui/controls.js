@@ -1,5 +1,5 @@
 ﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState, puzzleMeta, bounds, addGlobalSnapshot, globalSnapshots, connectionsState, resetGlobalSnapshots, gameSettings, setHoverPiece, viewSettings, recordPieceInteraction, resetPieceInteractionMatrix, completionState, setPuzzleComplete, setShowingComplete, setImageHintEnabled, clearPathsSelection, pathsState } from "../canvas/state.js";
-import { drawPiece, dashboardState, setDashboardOverlay, setDashboardColormap, setDashboardOpacity, setDashboardSelectedPiece, clearOffGridSelection, resetDashboardCaches } from "../canvas/draw.js";
+import { drawPiece, dashboardState, setDashboardOverlay, setDashboardOverlayGrayscale, setDashboardColormap, setDashboardOpacity, setDashboardSelectedPiece, clearOffGridSelection, resetDashboardCaches } from "../canvas/draw.js";
 import { PuzzlePiece } from "../canvas/piece.js";
 import { Group } from "../canvas/group.js";
 import { clampPiece, clampPieceOutsideGrid, averagePieceDiagonal, mergeWithSolvedNeighbors, targetTopLeft } from "../canvas/interaction.js";
@@ -38,7 +38,16 @@ const galleryItems = [
     sizes: {
       "10x10": { image: "/public/gallery/objects/10x10/image.png", mask: "/public/gallery/objects/10x10/mask.png" }
     }
-  }
+  },
+  {
+    id: "rubik",
+    title: { hu: "Rubik-kocka", en: "Rubik's Cube" },
+    preview: "/public/gallery/rubik/preview.png",
+    sizes: {
+      "6x6": { image: "/public/gallery/rubik/6x6/image.png", mask: "/public/gallery/rubik/6x6/mask.png" },
+      "10x10": { image: "/public/gallery/rubik/10x10/image.png", mask: "/public/gallery/rubik/10x10/mask.png" }
+    }
+  },
 ];
 
 let selectedItemId = null;
@@ -277,13 +286,17 @@ function buildConnectionsSvg(rows, cols, pieces) {
     const storedSh = stored.sh || 1;
     const storedMetaX = stored.metaX;
     const storedMetaY = stored.metaY;
-    const storedTargetX = originX + (storedMetaX - puzzleMeta.minX) * s + storedSw / 2;
-    const storedTargetY = originY + (storedMetaY - puzzleMeta.minY) * s + storedSh / 2;
+    const curSw = currentPiece.sw || 1;
+    // Use layout stored at snapshot time; fall back to piece-size estimate if unavailable
+    const sStored   = (stored.snapS      != null) ? stored.snapS      : s * (storedSw / curSw);
+    const oxStored  = (stored.snapOriginX != null) ? stored.snapOriginX : originX;
+    const oyStored  = (stored.snapOriginY != null) ? stored.snapOriginY : originY;
+    const storedTargetX = oxStored + (storedMetaX - puzzleMeta.minX) * sStored + storedSw / 2;
+    const storedTargetY = oyStored + (storedMetaY - puzzleMeta.minY) * sStored + storedSh / 2;
     const dx = stored.x - storedTargetX;
     const dy = stored.y - storedTargetY;
     const curTarget = targetCenter(currentPiece);
-    const curSw = currentPiece.sw || 1;
-    const scale = curSw / (storedSw || curSw || 1);
+    const scale = s / sStored;
     return { x: curTarget.x + dx * scale, y: curTarget.y + dy * scale };
   }
   for (const pp of allPieces) {
@@ -523,13 +536,16 @@ function buildMovementPathsSvg() {
     const storedSh = stored.sh || 1;
     const storedMetaX = stored.metaX;
     const storedMetaY = stored.metaY;
-    const storedTargetX = originX + (storedMetaX - puzzleMeta.minX) * s + storedSw / 2;
-    const storedTargetY = originY + (storedMetaY - puzzleMeta.minY) * s + storedSh / 2;
+    const curSw = currentPiece.sw || 1;
+    const sStored   = (stored.snapS      != null) ? stored.snapS      : s * (storedSw / curSw);
+    const oxStored  = (stored.snapOriginX != null) ? stored.snapOriginX : originX;
+    const oyStored  = (stored.snapOriginY != null) ? stored.snapOriginY : originY;
+    const storedTargetX = oxStored + (storedMetaX - puzzleMeta.minX) * sStored + storedSw / 2;
+    const storedTargetY = oyStored + (storedMetaY - puzzleMeta.minY) * sStored + storedSh / 2;
     const dx = stored.x - storedTargetX;
     const dy = stored.y - storedTargetY;
     const curTarget = targetCenter(currentPiece);
-    const curSw = currentPiece.sw || 1;
-    const scale = curSw / (storedSw || curSw || 1);
+    const scale = s / sStored;
     return { x: curTarget.x + dx * scale, y: curTarget.y + dy * scale };
   }
 
@@ -735,7 +751,7 @@ function startTimer() {
   timerInterval = setInterval(() => {
     timerElapsed = Date.now() - timerStart;
     renderTimer();
-    if (styleState.analyticsView === "heatmap" && ((puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 4 && puzzleGrid.cols === 4) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6))) redraw();
+    if (styleState.analyticsView === "heatmap" && ((puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 4 && puzzleGrid.cols === 4) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6) || (puzzleGrid.rows === 10 && puzzleGrid.cols === 10))) redraw();
   }, 1000);
 }
 
@@ -823,11 +839,25 @@ function updatePathsUI() {
   pathsLegend.style.display = show ? '' : 'none';
 }
 
+function updateDashboardUI() {
+  const dashboardControls = document.getElementById('dashboardControls');
+  const overlayRow = document.getElementById('dashboardOverlayRow');
+  const overlayGrayscaleRow = document.getElementById('dashboardOverlayGrayscaleRow');
+  const colormapRow = document.getElementById('dashboardColormapRow');
+  const opacityRow = document.getElementById('dashboardOpacityRow');
+  const show = styleState.analyticsView === 'dashboard';
+  if (dashboardControls) dashboardControls.style.display = show ? 'block' : 'none';
+  if (overlayRow) overlayRow.style.display = show ? '' : 'none';
+  if (overlayGrayscaleRow && !show) overlayGrayscaleRow.style.display = 'none';
+  if (colormapRow) colormapRow.style.display = show ? '' : 'none';
+  if (opacityRow) opacityRow.style.display = show ? '' : 'none';
+}
+
 function canExportHeatmap() {
   if (styleState.analyticsView === "connections") return true;
   if (styleState.analyticsView === "paths") return globalSnapshots && globalSnapshots.length >= 2;
   if (styleState.analyticsView !== "heatmap" && styleState.analyticsView !== "grabs") return false;
-  return (puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 4 && puzzleGrid.cols === 4) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6);
+  return (puzzleGrid.rows === 2 && puzzleGrid.cols === 2) || (puzzleGrid.rows === 4 && puzzleGrid.cols === 4) || (puzzleGrid.rows === 6 && puzzleGrid.cols === 6) || (puzzleGrid.rows === 10 && puzzleGrid.cols === 10);
 }
 
 function startGrabAt(piece, mx, my) {
@@ -1174,6 +1204,30 @@ async function startPuzzleFromGallery() {
   updateAnalyticsDesc();
   updateConnectionsUI();
   updatePathsUI();
+  updateDashboardUI();
+
+  // Reset dashboard overlay state for new game
+  const overlayToggle = document.getElementById('dashboardOverlayToggle');
+  if (overlayToggle) overlayToggle.checked = false;
+  const overlayGrayscaleToggle = document.getElementById('dashboardOverlayGrayscale');
+  if (overlayGrayscaleToggle) overlayGrayscaleToggle.checked = false;
+  setDashboardOverlay(false);
+  setDashboardOverlayGrayscale(false);
+
+  // Reset image hint state for new game
+  const imageHintToggleEl = document.getElementById('imageHintToggle');
+  if (imageHintToggleEl) imageHintToggleEl.checked = false;
+  setImageHintEnabled(false);
+
+  // Reset dashboard colormap and opacity to defaults
+  const dashboardColormapEl = document.getElementById('dashboardColormap');
+  if (dashboardColormapEl) { dashboardColormapEl.value = 'viridis'; setDashboardColormap('viridis'); }
+  const dashboardOpacityEl = document.getElementById('dashboardOpacity');
+  if (dashboardOpacityEl) { dashboardOpacityEl.value = 85; setDashboardOpacity(0.85); }
+
+  // Reset paths colormap to default
+  const pathsColormapEl = document.getElementById('pathsColormap');
+  if (pathsColormapEl) { pathsColormapEl.value = 'viridis'; pathsState.colormap = 'viridis'; }
 
   // Update zoom UI availability (enable zoom controls since analytics = "none")
   const zoomToggleEl = document.getElementById('zoomToggle');
@@ -1317,6 +1371,27 @@ async function runPuzzleLoad(formData) {
   }
   setPuzzleMeta(data.meta);
   setPuzzleGrid(data.rows, data.cols);
+
+  // Auto-set the largest piece scale that fits ~50% of the canvas (leaves room for scattered pieces)
+  const puzzleMetaW = puzzleMeta.maxX - puzzleMeta.minX;
+  const puzzleMetaH = puzzleMeta.maxY - puzzleMeta.minY;
+  if (puzzleMetaW > 0 && puzzleMetaH > 0) {
+    const fitFactor = 0.5;
+    // Normalize by grid count so same-grid puzzles always produce the same visual piece size
+    // regardless of source image resolution or aspect ratio.
+    const avgMetaCellW = puzzleMetaW / data.cols;
+    const avgMetaCellH = puzzleMetaH / data.rows;
+    const targetPiecePx = Math.min(bounds.w, bounds.h) * fitFactor / Math.max(data.cols, data.rows);
+    const rawScale = targetPiecePx / Math.max(avgMetaCellW, avgMetaCellH);
+    // Clamp to slider range [0.10, 1.00]
+    const optimalScale = Math.max(0.10, Math.min(1.00, rawScale));
+    styleState.pieceScale = optimalScale;
+    const psr = document.getElementById('pieceScaleRange');
+    const psl = document.getElementById('pieceScaleLbl');
+    if (psr) psr.value = Math.round(optimalScale * 100);
+    if (psl) psl.textContent = `${Math.round(optimalScale * 100)}%`;
+  }
+
   const heatmapExport = document.getElementById('heatmapExport');
   if (heatmapExport) {
     heatmapExport.disabled = !canExportHeatmap();
@@ -1364,7 +1439,8 @@ async function runPuzzleLoad(formData) {
   resetDashboardCaches();
   resetPieceInteractionMatrix(); // Reset interaction matrix for new game
   lastGrabbedPieceIndex = null; // Reset last grabbed piece tracker
-  const initSnap = addGlobalSnapshot(listPieces());
+  const { originX: snapOX, originY: snapOY, s: snapS } = gridRectScaled(bounds.w || 640, bounds.h || 640);
+  const initSnap = addGlobalSnapshot(listPieces(), { originX: snapOX, originY: snapOY, s: snapS });
   for (const p of listPieces()) p.snapshots = [initSnap];
 
   window.__pieces = window.__pieces || [];
@@ -1482,23 +1558,15 @@ export function wireControls() {
   const updateDashboardUI = () => {
     const dashboardControls = document.getElementById('dashboardControls');
     const overlayRow = document.getElementById('dashboardOverlayRow');
+    const overlayGrayscaleRow = document.getElementById('dashboardOverlayGrayscaleRow');
     const colormapRow = document.getElementById('dashboardColormapRow');
     const opacityRow = document.getElementById('dashboardOpacityRow');
-    const view = styleState.analyticsView;
-    // Show controls panel for dashboard, offgrid, or normal view
-    const showControls = view === 'dashboard' || view === 'offgrid' || view === 'none';
-    if (dashboardControls) {
-      dashboardControls.style.display = showControls ? 'block' : 'none';
-    }
-    if (overlayRow) {
-      overlayRow.style.display = view === 'dashboard' ? '' : 'none';
-    }
-    if (colormapRow) {
-      colormapRow.style.display = (view === 'dashboard' || view === 'offgrid') ? '' : 'none';
-    }
-    if (opacityRow) {
-      opacityRow.style.display = view === 'dashboard' ? '' : 'none';
-    }
+    const show = styleState.analyticsView === 'dashboard';
+    if (dashboardControls) dashboardControls.style.display = show ? 'block' : 'none';
+    if (overlayRow) overlayRow.style.display = show ? '' : 'none';
+    if (overlayGrayscaleRow && !show) overlayGrayscaleRow.style.display = 'none';
+    if (colormapRow) colormapRow.style.display = show ? '' : 'none';
+    if (opacityRow) opacityRow.style.display = show ? '' : 'none';
   };
 
   const analyticsView = document.getElementById('analyticsView');
@@ -1550,9 +1618,20 @@ export function wireControls() {
 
   // Dashboard overlay toggle
   const dashboardOverlayToggle = document.getElementById('dashboardOverlayToggle');
+  const dashboardOverlayGrayscaleRow = document.getElementById('dashboardOverlayGrayscaleRow');
+  const dashboardOverlayGrayscale = document.getElementById('dashboardOverlayGrayscale');
   if (dashboardOverlayToggle) {
     dashboardOverlayToggle.addEventListener('change', () => {
       setDashboardOverlay(dashboardOverlayToggle.checked);
+      if (dashboardOverlayGrayscaleRow) {
+        dashboardOverlayGrayscaleRow.style.display = dashboardOverlayToggle.checked ? '' : 'none';
+      }
+      redraw();
+    });
+  }
+  if (dashboardOverlayGrayscale) {
+    dashboardOverlayGrayscale.addEventListener('change', () => {
+      setDashboardOverlayGrayscale(dashboardOverlayGrayscale.checked);
       redraw();
     });
   }
@@ -1571,9 +1650,11 @@ export function wireControls() {
   const dashboardOpacity = document.getElementById('dashboardOpacity');
   if (dashboardOpacity) {
     dashboardOpacity.value = Math.round(dashboardState.colorOpacity * 100);
+    let _opacityRaf = null;
     dashboardOpacity.addEventListener('input', () => {
       setDashboardOpacity(parseInt(dashboardOpacity.value, 10) / 100);
-      redraw();
+      if (_opacityRaf) cancelAnimationFrame(_opacityRaf);
+      _opacityRaf = requestAnimationFrame(() => { _opacityRaf = null; redraw(); });
     });
   }
 
@@ -1889,7 +1970,11 @@ export function wireControls() {
     styleState.pieceScale = newScale;
     document.getElementById('pieceScaleLbl').textContent = `${Math.round(styleState.pieceScale*100)}%`;
 
-    // Handle groups properly - scale relative positions within merged groups
+    // Reposition pieces after scale change:
+    // - Solved pieces always move to their new target positions
+    // - Unsolved pieces in a group with solved pieces keep their relative offset (scaled)
+    // - Purely unsolved merged groups scale relative positions around anchor
+    // - Single unsolved pieces stay in place (only visual size changes)
     const processedGroups = new Set();
 
     for (const g of (window.__groups || [])) {
@@ -1897,46 +1982,46 @@ export function wireControls() {
       processedGroups.add(g);
 
       const members = Array.from(g.members);
-      const isMergedGroup = members.length > 1;
+      const solvedMembers = members.filter(p => p.solved);
+      const unsolvedMembers = members.filter(p => !p.solved);
 
-      if (isMergedGroup) {
-        // For merged groups, scale the relative positions to match the new piece size
-        // Use first piece as anchor point
+      if (solvedMembers.length > 0) {
+        // Group has solved pieces – reposition them to new targets.
+        // Use first solved piece as reference for unsolved members.
+        const ref = solvedMembers[0];
+        const refOldX = ref.x;
+        const refOldY = ref.y;
+
+        for (const p of solvedMembers) {
+          p.moveToTarget();
+        }
+
+        // Unsolved members: maintain relative offset from reference, scaled
+        if (unsolvedMembers.length > 0) {
+          const refNewX = ref.x;
+          const refNewY = ref.y;
+          for (const p of unsolvedMembers) {
+            const relX = p.x - refOldX;
+            const relY = p.y - refOldY;
+            p.x = refNewX + relX * scaleRatio;
+            p.y = refNewY + relY * scaleRatio;
+          }
+        }
+      } else if (members.length > 1) {
+        // Merged unsolved group – scale relative positions around anchor
         const anchor = members[0];
         const anchorOldX = anchor.x;
         const anchorOldY = anchor.y;
 
-        // Scale relative positions of all pieces in the group
         for (const p of members) {
-          if (p === anchor) continue; // Skip anchor piece
-
-          // Calculate relative position from anchor
+          if (p === anchor) continue;
           const relX = p.x - anchorOldX;
           const relY = p.y - anchorOldY;
-
-          // Scale the relative position
-          const newRelX = relX * scaleRatio;
-          const newRelY = relY * scaleRatio;
-
-          // Apply new position
-          p.x = anchorOldX + newRelX;
-          p.y = anchorOldY + newRelY;
-        }
-
-        // If all pieces are solved, move the entire group to target
-        const allSolved = members.every(p => p.solved);
-        if (allSolved) {
-          const refTarget = window.__targetTopLeft(anchor);
-          const dx = refTarget.x - anchor.x;
-          const dy = refTarget.y - anchor.y;
-
-          for (const p of members) {
-            p.x += dx;
-            p.y += dy;
-          }
+          p.x = anchorOldX + relX * scaleRatio;
+          p.y = anchorOldY + relY * scaleRatio;
         }
       }
-      // else: single piece - don't move, just let size change
+      // Single unsolved piece: don't move, just let size change
     }
 
     redraw();
@@ -1981,8 +2066,7 @@ export function wireControls() {
         zoomControls.style.display = zoomToggle.checked ? 'block' : 'none';
       }
       // Disable magnifier when zoom is enabled
-      if (viewSettings.zoomEnabled && magnifierState.enabled) {
-        magnifierState.enabled = false;
+      if (viewSettings.zoomEnabled && viewSettings.magnifierEnabled) {
         viewSettings.magnifierEnabled = false;
         const magnifierInfo = document.getElementById('magnifierInfo');
         if (magnifierInfo) magnifierInfo.style.display = 'none';
@@ -2046,7 +2130,8 @@ export function wireControls() {
         // reset global snapshots after shuffle
         resetGlobalSnapshots();
         resetDashboardCaches();
-        const sidx = addGlobalSnapshot(listPieces());
+        const { originX: sidxOX, originY: sidxOY, s: sidxS } = gridRectScaled(bounds.w || 640, bounds.h || 640);
+        const sidx = addGlobalSnapshot(listPieces(), { originX: sidxOX, originY: sidxOY, s: sidxS });
         for (const p of listPieces()) p.snapshots = [sidx];
         // reset per-piece solved state and analytics
         for (const p of listPieces()) { p.solved = false; p.solvedAt = null; p.grabs = []; p.rotationCount = 0; }
@@ -2063,31 +2148,14 @@ export function wireControls() {
       // reset global snapshots after shuffle
       resetGlobalSnapshots();
       resetDashboardCaches();
-      const sidx = addGlobalSnapshot(listPieces());
+      const { originX: sidxOX2, originY: sidxOY2, s: sidxS2 } = gridRectScaled(bounds.w || 640, bounds.h || 640);
+      const sidx = addGlobalSnapshot(listPieces(), { originX: sidxOX2, originY: sidxOY2, s: sidxS2 });
       for (const p of listPieces()) p.snapshots = [sidx];
       for (const p of listPieces()) { p.solved = false; p.solvedAt = null; p.grabs = []; p.rotationCount = 0; }
       setHoverPiece(null);
       stopTimer(); resetTimer(); startTimer();
       redraw();
     }
-  });
-
-  document.getElementById('clear').addEventListener('click', () => {
-    // Stop any running intervals
-    if (dragTrackInterval) {
-      clearInterval(dragTrackInterval);
-      dragTrackInterval = null;
-    }
-
-    resetScene();
-    window.__pieces = [];
-    window.__groups = [];
-    resetGlobalSnapshots();
-    resetDashboardCaches();
-    setHoverPiece(null);
-    stopTimer();
-    resetTimer();
-    redraw();
   });
 
   // Note: Mouse wheel handling is now centralized in main.js with priority order:
@@ -2148,48 +2216,74 @@ export function wireControls() {
       // don't start dragging when connections view is active
       return;
     }
-    // start per-piece grab only when analytics view allows normal interaction
-    if (hitPiece && styleState.analyticsView === "none") startGrabAt(hitPiece, mx, my);
+    // Determine if "bring forward" mode is active – if so, skip solved-only
+    // groups during hit detection so the user can click through solved pieces
+    // to reach unsolved pieces trapped underneath.
+    const bringForwardOn = !!document.getElementById('bringForwardToggle')?.checked;
+
+    let chosenGroupIdx = -1;
     for (let gi = groups.length - 1; gi >= 0; gi--) {
       const g = groups[gi];
       if (window.__groupAlphaHit(g, mx, my)) {
-        groups.push(groups.splice(gi, 1)[0]);
-        window.__dragging = g;
-        const c = g.getCenter();
-        window.__dragDX = mx - c.cx;
-        window.__dragDY = my - c.cy;
-        // if a whole group is grabbed, mark the member piece closest to the
-        // pointer as the dragged piece for wrong-link detection
-        try {
-          let closest = null;
-          let cd = Infinity;
-          for (const m of g.members) {
-            const dx = (m.x + m.sw/2) - mx;
-            const dy = (m.y + m.sh/2) - my;
-            const d = Math.hypot(dx, dy);
-            if (d < cd) { cd = d; closest = m; }
+        if (bringForwardOn) {
+          // Check if every member of this group is already solved
+          const allSolved = Array.from(g.members).every(m => m.solved);
+          if (allSolved) {
+            // Skip this solved group and keep looking underneath
+            continue;
           }
-          if (closest) window.__draggedPiece = closest;
-        } catch (_) {}
-
-        // Start tracking drag path - record position every 150ms
-        if (dragTrackInterval) clearInterval(dragTrackInterval);
-        dragTrackInterval = setInterval(() => {
-          if (window.__dragging) {
-            try {
-              const snapIdx = addGlobalSnapshot(listPieces());
-              for (const p of listPieces()) {
-                if (!p) continue;
-                p.snapshots = p.snapshots || [];
-                p.snapshots.push(snapIdx);
-              }
-            } catch (_) {}
-          }
-        }, 150); // 150ms = ~7 snapshots/second for smooth professional curves
-
-        redraw();
-        return;
+        }
+        chosenGroupIdx = gi;
+        break;
       }
+    }
+    if (chosenGroupIdx >= 0) {
+      const g = groups[chosenGroupIdx];
+      groups.push(groups.splice(chosenGroupIdx, 1)[0]);
+      window.__dragging = g;
+      const c = g.getCenter();
+      window.__dragDX = mx - c.cx;
+      window.__dragDY = my - c.cy;
+      // if a whole group is grabbed, mark the member piece closest to the
+      // pointer as the dragged piece for wrong-link detection
+      try {
+        let closest = null;
+        let cd = Infinity;
+        for (const m of g.members) {
+          const dx = (m.x + m.sw/2) - mx;
+          const dy = (m.y + m.sh/2) - my;
+          const d = Math.hypot(dx, dy);
+          if (d < cd) { cd = d; closest = m; }
+        }
+        if (closest) window.__draggedPiece = closest;
+      } catch (_) {}
+
+      // start per-piece grab tracking using the actual chosen piece from the
+      // group (not hitPiece from findPieceAt which may return a solved piece
+      // on top when bring-forward mode skips it)
+      if (styleState.analyticsView === "none") {
+        const grabPiece = window.__draggedPiece || hitPiece;
+        if (grabPiece) startGrabAt(grabPiece, mx, my);
+      }
+
+      // Start tracking drag path - record position every 150ms
+      if (dragTrackInterval) clearInterval(dragTrackInterval);
+      dragTrackInterval = setInterval(() => {
+        if (window.__dragging) {
+          try {
+            const { originX: tOX, originY: tOY, s: tS } = gridRectScaled(bounds.w || 640, bounds.h || 640);
+            const snapIdx = addGlobalSnapshot(listPieces(), { originX: tOX, originY: tOY, s: tS });
+            for (const p of listPieces()) {
+              if (!p) continue;
+              p.snapshots = p.snapshots || [];
+              p.snapshots.push(snapIdx);
+            }
+          } catch (_) {}
+        }
+      }, 150); // 150ms = ~7 snapshots/second for smooth professional curves
+
+      redraw();
+      return;
     }
     window.__dragging = null;
   };
@@ -2250,7 +2344,8 @@ export function wireControls() {
 
     // record a global snapshot after the release/move so connections can reference it
     try {
-      const snapIdx = addGlobalSnapshot(listPieces());
+      const { originX: rOX, originY: rOY, s: rS } = gridRectScaled(bounds.w || 640, bounds.h || 640);
+      const snapIdx = addGlobalSnapshot(listPieces(), { originX: rOX, originY: rOY, s: rS });
       // register this snapshot for all pieces so any selected piece's slider
       // can step through the same global timeline (even if the piece itself
       // wasn't physically moved in this step)
@@ -2258,6 +2353,49 @@ export function wireControls() {
         if (!p) continue;
         p.snapshots = p.snapshots || [];
         p.snapshots.push(snapIdx);
+      }
+    } catch (_) {}
+
+    // Bring-forward: after every release, scan ALL unsolved groups –
+    // if any of them are overlapped by a solved-only group drawn above
+    // (higher z-index), automatically promote them to the front so the
+    // user never has to click separately to unblock a trapped piece.
+    try {
+      const bringFwdEl = document.getElementById('bringForwardToggle');
+      if (bringFwdEl && bringFwdEl.checked) {
+        const arr = window.__groups || [];
+        const toPromote = [];
+        for (let gi = 0; gi < arr.length; gi++) {
+          const ug = arr[gi];
+          const hasUnsolved = Array.from(ug.members).some(m => !m.solved);
+          if (!hasUnsolved) continue;
+          let blocked = false;
+          for (const m of ug.members) {
+            if (m.solved) continue;
+            const lA = m.x, rA = m.x + m.sw, tA = m.y, bA = m.y + m.sh;
+            for (let si = gi + 1; si < arr.length; si++) {
+              const sg = arr[si];
+              if (!Array.from(sg.members).every(sp => sp.solved)) continue;
+              for (const sp of sg.members) {
+                const lB = sp.x, rB = sp.x + sp.sw, tB = sp.y, bB = sp.y + sp.sh;
+                if (!(rA <= lB || lA >= rB || bA <= tB || tA >= bB)) {
+                  blocked = true; break;
+                }
+              }
+              if (blocked) break;
+            }
+            if (blocked) break;
+          }
+          if (blocked) toPromote.push(ug);
+        }
+        if (toPromote.length > 0) {
+          for (const pg of toPromote) {
+            const idx = arr.indexOf(pg);
+            if (idx >= 0) arr.splice(idx, 1);
+          }
+          arr.push(...toPromote);
+          window.__groups = arr;
+        }
       }
     } catch (_) {}
 

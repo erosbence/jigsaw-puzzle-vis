@@ -80,14 +80,21 @@
             </div>
 
             <div class="group">
-              <h3 data-i18n="helpGroup">Segítség</h3>
-              <div class="row">
-                <label for="imageHintToggle" data-i18n="imageHintToggle">Kép segítség</label>
-                <input type="checkbox" id="imageHintToggle" />
-              </div>
-              <div class="row">
-                <span class="hint" data-i18n="imageHintDesc">Halvány kép megjelenítése a kirakási területen</span>
-              </div>
+                <h3 data-i18n="helpGroup">Segítség</h3>
+                <div class="row">
+                    <label for="imageHintToggle" data-i18n="imageHintToggle">Kép segítség</label>
+                    <input type="checkbox" id="imageHintToggle" />
+                </div>
+                <div class="row">
+                    <span class="hint" data-i18n="imageHintDesc">Halvány kép megjelenítése a kirakási területen</span>
+                </div>
+                <div class="row">
+                    <label for="bringForwardToggle" data-i18n="bringForwardToggle">Blokkolt darabok előhozása</label>
+                    <input type="checkbox" id="bringForwardToggle" checked />
+                </div>
+                <div class="row">
+                    <span class="hint" data-i18n="bringForwardDesc">Ha egy nem illesztett darab a már helyükre illesztett darabok mögé kerül, automatikusan előtérbe hozza, hogy ne ragadjon be.</span>
+                </div>
             </div>
 
           <div class="group">
@@ -114,7 +121,6 @@
               <div class="row"><label for="snapToggle" data-i18n="snapToOrigin">Snap az eredeti helyre</label><input type="checkbox" id="snapToggle" checked /></div>
               <div class="row"><label for="snapPct" data-i18n="snapThreshold">Snap küszöb</label><input type="range" id="snapPct" min="0" max="100" value="40" /></div>
               <div class="row"><button id="shuffle" class="ghost" type="button" data-i18n="shuffle">Szétkeverés</button></div>
-              <div class="row"><button id="clear" class="ghost" type="button" data-i18n="clear">Törlés</button></div>
             </div>
 
             <div class="group">
@@ -125,106 +131,110 @@
             </div>
           </div>
           <div id="analyticsPanel" class="side-panel">
-            <div class="group">
-              <h3 data-i18n="analyticsGroup">Analitika</h3>
-              <div class="row"><label for="timerToggle" data-i18n="timerToggle">Időzítő megjelenítése</label><input type="checkbox" id="timerToggle" checked /></div>
-              <div id="timerWrap" class="timer-wrap">
-                <span class="timer-label" data-i18n="timerLabel">Idő</span>
-                <span id="timerDisplay" class="timer-display">00:00:00</span>
-              </div>
-              <div class="row">
-                <label for="analyticsView" data-i18n="analyticsView">Analitika nézet</label>
-                <select id="analyticsView">
-                    <option value="none" data-i18n="analyticsViewNone">Kikapcsolva</option>
-                    <option value="dashboard" data-i18n="analyticsViewDashboard">Dashboard</option>
-                    <option value="heatmap" data-i18n="analyticsViewHeatmap">Időlenyomat</option>
-                    <option value="grabs" data-i18n="analyticsViewGrabs">Elkapási pontok</option>
-                    <!--<option value="connections" data-i18n="analyticsViewConnections">Kapcsolatok</option>-->
-                    <option value="paths" data-i18n="analyticsViewPaths">Mozgási útvonalak</option>
-                    <option value="adjacency" data-i18n="analyticsViewAdjacency">Szomszédsági mátrix</option>
-                    <option value="offgrid" data-i18n="analyticsViewOffgrid">Külső illesztések</option>
-                  </select>
-                </div>
-                <div id="analyticsDesc" class="hint" data-i18n="analyticsDescNone">Válassz egy nézetet az analitikához.</div>
+              <div class="group">
+                  <h3 data-i18n="analyticsGroup">Analitika</h3>
+                  <div class="row"><label for="timerToggle" data-i18n="timerToggle">Időzítő megjelenítése</label><input type="checkbox" id="timerToggle" checked /></div>
+                  <div id="timerWrap" class="timer-wrap">
+                      <span class="timer-label" data-i18n="timerLabel">Idő</span>
+                      <span id="timerDisplay" class="timer-display">00:00:00</span>
+                  </div>
+                  <div class="row">
+                      <label for="analyticsView" data-i18n="analyticsView">Analitika nézet</label>
+                      <select id="analyticsView">
+                          <option value="none" data-i18n="analyticsViewNone">Kikapcsolva</option>
+                          <option value="dashboard" data-i18n="analyticsViewDashboard">Dashboard</option>
+                          <!--<option value="heatmap" data-i18n="analyticsViewHeatmap">Időlenyomat</option>-->
+                          <option value="grabs" data-i18n="analyticsViewGrabs">Elkapási pontok</option>
+                          <!--<option value="connections" data-i18n="analyticsViewConnections">Kapcsolatok</option>-->
+                          <option value="paths" data-i18n="analyticsViewPaths">Mozgási útvonalak</option>
+                          <!--<option value="adjacency" data-i18n="analyticsViewAdjacency">Szomszédsági mátrix</option>-->
+                          <option value="offgrid" data-i18n="analyticsViewOffgrid">Külső illesztések</option>
+                      </select>
+                  </div>
+                  <div id="analyticsDesc" class="hint" data-i18n="analyticsDescNone">Válassz egy nézetet az analitikához.</div>
 
-                <!-- Dashboard / Offgrid shared controls -->
-                <div id="dashboardControls" style="display:none; margin-top:12px;">
-                  <div id="dashboardOverlayRow" class="row">
-                    <label for="dashboardOverlayToggle" data-i18n="dashboardOverlayToggle">Háttérkép megjelenítése</label>
-                    <input type="checkbox" id="dashboardOverlayToggle" />
+                  <!-- Dashboard / Offgrid shared controls -->
+                  <div id="dashboardControls" style="display:none; margin-top:12px;">
+                      <div id="dashboardOverlayRow" class="row">
+                          <label for="dashboardOverlayToggle" data-i18n="dashboardOverlayToggle">Háttérkép megjelenítése</label>
+                          <input type="checkbox" id="dashboardOverlayToggle" />
+                      </div>
+                      <div id="dashboardOverlayGrayscaleRow" class="row" style="display:none; padding-left:16px; font-size:0.88em; opacity:0.85;">
+                          <label for="dashboardOverlayGrayscale" data-i18n="dashboardOverlayGrayscale">Szürkeárnyalatos</label>
+                          <input type="checkbox" id="dashboardOverlayGrayscale" />
+                      </div>
+                      <div id="dashboardColormapRow" class="row" style="margin-top:8px;">
+                          <label for="dashboardColormap" data-i18n="dashboardColormap">Színskála</label>
+                          <select id="dashboardColormap">
+                              <option value="viridis" data-i18n-option="colormapViridis">Viridis</option>
+                              <option value="plasma" data-i18n-option="colormapPlasma">Plasma</option>
+                              <option value="inferno" data-i18n-option="colormapInferno">Inferno</option>
+                              <option value="magma" data-i18n-option="colormapMagma">Magma</option>
+                              <option value="cividis" data-i18n-option="colormapCividis">Cividis</option>
+                              <option value="seismic" data-i18n-option="colormapSeismic">Seismic</option>
+                          </select>
+                      </div>
+                      <div id="dashboardOpacityRow" class="row" style="margin-top:8px; display:none;">
+                          <label for="dashboardOpacity" data-i18n="dashboardOpacityLabel">Szín átlátszóság</label>
+                          <input type="range" id="dashboardOpacity" min="0" max="100" value="85" />
+                      </div>
                   </div>
-                  <div id="dashboardColormapRow" class="row" style="margin-top:8px;">
-                    <label for="dashboardColormap" data-i18n="dashboardColormap">Színskála</label>
-                    <select id="dashboardColormap">
-                      <option value="viridis" data-i18n-option="colormapViridis">Viridis</option>
-                      <option value="plasma" data-i18n-option="colormapPlasma">Plasma</option>
-                      <option value="inferno" data-i18n-option="colormapInferno">Inferno</option>
-                      <option value="magma" data-i18n-option="colormapMagma">Magma</option>
-                      <option value="cividis" data-i18n-option="colormapCividis">Cividis</option>
-                      <option value="seismic" data-i18n-option="colormapSeismic">Seismic</option>
-                    </select>
-                  </div>
-                  <div id="dashboardOpacityRow" class="row" style="margin-top:8px; display:none;">
-                    <label for="dashboardOpacity" data-i18n="dashboardOpacityLabel">Szín átlátszóság</label>
-                    <input type="range" id="dashboardOpacity" min="0" max="100" value="85" />
-                  </div>
-                </div>
 
-                <div id="pathsLegend" style="display:none; margin-top:12px;">
-                  <div class="row" style="margin-bottom:10px;">
-                    <label for="pathsColormap" data-i18n="pathsColormapLabel">Színskála</label>
-                    <select id="pathsColormap">
-                      <option value="viridis" data-i18n-option="colormapViridis">Viridis</option>
-                      <option value="plasma" data-i18n-option="colormapPlasma">Plasma</option>
-                      <option value="inferno" data-i18n-option="colormapInferno">Inferno</option>
-                      <option value="magma" data-i18n-option="colormapMagma">Magma</option>
-                      <option value="cividis" data-i18n-option="colormapCividis">Cividis</option>
-                      <option value="seismic" data-i18n-option="colormapSeismic">Seismic</option>
-                    </select>
+                  <div id="pathsLegend" style="display:none; margin-top:12px;">
+                      <div class="row" style="margin-bottom:10px;">
+                          <label for="pathsColormap" data-i18n="pathsColormapLabel">Színskála</label>
+                          <select id="pathsColormap">
+                              <option value="viridis" data-i18n-option="colormapViridis">Viridis</option>
+                              <option value="plasma" data-i18n-option="colormapPlasma">Plasma</option>
+                              <option value="inferno" data-i18n-option="colormapInferno">Inferno</option>
+                              <option value="magma" data-i18n-option="colormapMagma">Magma</option>
+                              <option value="cividis" data-i18n-option="colormapCividis">Cividis</option>
+                              <option value="seismic" data-i18n-option="colormapSeismic">Seismic</option>
+                          </select>
+                      </div>
+                      <div style="margin-bottom:10px;">
+                          <div id="pathsGradientBar" style="position:relative; height:14px; background: linear-gradient(to right, rgb(68,1,84), rgb(59,82,139), rgb(33,145,140), rgb(94,201,98), rgb(253,231,37)); border:1px solid #969696; border-radius:2px;"></div>
+                          <div style="display:flex; justify-content:space-between; font-size:11px; color:#505050; margin-top:4px;">
+                              <span data-i18n="pathStart">Kezdés</span>
+                              <span data-i18n="pathEnd">Vég</span>
+                          </div>
+                      </div>
+                      <div style="font-size:11px; color:#666; margin-bottom:6px;" data-i18n="pathMarkers">Jelölők:</div>
+                      <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px; font-size:11px;">
+                          <div style="width:14px; height:14px; min-width:14px; background:rgba(40,40,80,1); border:2px solid #ffffff; border-radius:50%; box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>
+                          <span data-i18n="pathStartMarker">Kezdés</span>
+                      </div>
+                      <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px; font-size:11px;">
+                          <div style="width:8px; height:8px; min-width:8px; background:rgba(160,160,170,0.8); border:1.5px solid #ffffff; border-radius:50%; box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>
+                          <span data-i18n="pathStopMarker">Megállás</span>
+                      </div>
+                      <div style="display:flex; align-items:center; gap:10px; font-size:11px;">
+                          <div style="width:16px; height:16px; min-width:16px; position:relative;">
+                              <svg width="16" height="16" viewBox="0 0 16 16" style="filter: drop-shadow(0 0 3px rgba(0,0,0,0.3));">
+                                  <polygon points="8,1 9.5,6 14.5,6 10.5,9 12,14 8,10.5 4,14 5.5,9 1.5,6 6.5,6" fill="rgba(253,231,37,0.9)" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round" />
+                              </svg>
+                          </div>
+                          <span data-i18n="pathEndMarker">Végpont</span>
+                      </div>
                   </div>
-                  <div style="margin-bottom:10px;">
-                    <div id="pathsGradientBar" style="position:relative; height:14px; background: linear-gradient(to right, rgb(68,1,84), rgb(59,82,139), rgb(33,145,140), rgb(94,201,98), rgb(253,231,37)); border:1px solid #969696; border-radius:2px;"></div>
-                    <div style="display:flex; justify-content:space-between; font-size:11px; color:#505050; margin-top:4px;">
-                      <span data-i18n="pathStart">Kezdés</span>
-                      <span data-i18n="pathEnd">Vég</span>
-                    </div>
+                  <div id="connectionsControls" style="display:none; margin-top:8px;">
+                      <div id="connectionsSelected" class="hint"><label for="connectionViewPieceIdText" data-i18n="connectionViewPieceIdText">Kiválasztott darab: #</label><span id="connectionsSelectedIdx">—</span></div>
+                      <div id="conntectionsSliderHint" class="hint">
+                          <label for="connectionsSliderHint" data-i18n="connectionSliderHint">
+                              Használd a csúszkát a különböző időpontok megtekintéséhez.
+                          </label>
+                      </div>
+                      <div class="row">
+                          <label for="connectionsSlider" data-i18n="connectionsSlider">Időpillanat</label>
+                          <input type="range" id="connectionsSlider" min="0" value="0" />
+                      </div>
+                      <div class="connections-legend" style="margin-top:8px; font-size:13px;">
+                          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><span style="width: 14px; height: 8px;min-width: 14px; background: #2878dc; display: inline-block; border-radius: 2px; box-shadow: 0 0 4px rgba(40,120,220,0.9)"></span><span data-i18n="connLegendCorrect">Kék: helyes összeillesztés</span></div>
+                          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><span style="width: 14px; height: 8px;min-width: 14px; background: #a01414; display: inline-block; border-radius: 2px; box-shadow: 0 0 4px rgba(160,20,20,0.9)"></span><span data-i18n="connLegendTooFar">Sötét piros: túl nagy távolság (rossz kapcsolat)</span></div>
+                          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><span style="width: 14px; height: 8px;min-width: 14px; background: #FF8C00; display: inline-block; border-radius: 2px; box-shadow: 0 0 4px rgba(255,140,0,0.9)"></span><span data-i18n="connLegendTooClose">Narancs: túl kicsi távolság (felcserélődés)</span></div>
+                      </div>
                   </div>
-                  <div style="font-size:11px; color:#666; margin-bottom:6px;" data-i18n="pathMarkers">Jelölők:</div>
-                  <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px; font-size:11px;">
-                    <div style="width:14px; height:14px; min-width:14px; background:rgba(40,40,80,1); border:2px solid #ffffff; border-radius:50%; box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>
-                    <span data-i18n="pathStartMarker">Kezdés</span>
-                  </div>
-                  <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px; font-size:11px;">
-                    <div style="width:8px; height:8px; min-width:8px; background:rgba(160,160,170,0.8); border:1.5px solid #ffffff; border-radius:50%; box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>
-                    <span data-i18n="pathStopMarker">Megállás</span>
-                  </div>
-                  <div style="display:flex; align-items:center; gap:10px; font-size:11px;">
-                    <div style="width:16px; height:16px; min-width:16px; position:relative;">
-                      <svg width="16" height="16" viewBox="0 0 16 16" style="filter: drop-shadow(0 0 3px rgba(0,0,0,0.3));">
-                        <polygon points="8,1 9.5,6 14.5,6 10.5,9 12,14 8,10.5 4,14 5.5,9 1.5,6 6.5,6" fill="rgba(253,231,37,0.9)" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/>
-                      </svg>
-                    </div>
-                    <span data-i18n="pathEndMarker">Végpont</span>
-                  </div>
-                </div>
-                <div id="connectionsControls" style="display:none; margin-top:8px;">
-                  <div id="connectionsSelected" class="hint"><label for="connectionViewPieceIdText" data-i18n="connectionViewPieceIdText">Kiválasztott darab: #</label><span id="connectionsSelectedIdx">—</span></div>
-                  <div id="conntectionsSliderHint" class="hint">
-                      <label for="connectionsSliderHint" data-i18n="connectionSliderHint">
-                          Használd a csúszkát a különböző időpontok megtekintéséhez.
-                      </label>
-                  </div>
-                    <div class="row">
-                    <label for="connectionsSlider" data-i18n="connectionsSlider">Időpillanat</label>
-                    <input type="range" id="connectionsSlider" min="0" value="0" />
-                  </div>
-                  <div class="connections-legend" style="margin-top:8px; font-size:13px;">
-                    <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><span style="width: 14px; height: 8px;min-width: 14px; background: #2878dc; display: inline-block; border-radius: 2px; box-shadow: 0 0 4px rgba(40,120,220,0.9)"></span><span data-i18n="connLegendCorrect">Kék: helyes összeillesztés</span></div>
-                    <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><span style="width: 14px; height: 8px;min-width: 14px; background: #a01414; display: inline-block; border-radius: 2px; box-shadow: 0 0 4px rgba(160,20,20,0.9)"></span><span data-i18n="connLegendTooFar">Sötét piros: túl nagy távolság (rossz kapcsolat)</span></div>
-                    <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><span style="width: 14px; height: 8px;min-width: 14px; background: #FF8C00; display: inline-block; border-radius: 2px; box-shadow: 0 0 4px rgba(255,140,0,0.9)"></span><span data-i18n="connLegendTooClose">Narancs: túl kicsi távolság (felcserélődés)</span></div>
-                  </div>
-                </div>
-                <div class="row"><button id="heatmapExport" class="ghost" type="button">Mentés (SVG)</button></div>
+                  <!--<div class="row"><button id="heatmapExport" class="ghost" type="button">Mentés (SVG)</button></div>-->
               </div>
             </div>
           </div>
@@ -268,48 +278,55 @@
 
                                     <p style="text-align:justify;">
                                         <strong>Kutatás célja:</strong> A FragmentVis egy interaktív vizualizációs rendszer, amely kirakós játékok megoldási stratégiáinak elemzését teszi lehetővé. A rendszer valós időben rögzíti és vizualizálja a játékosok interakcióit, így mélyebb betekintést nyújt a térbeli problémamegoldás kognitív folyamataiba.
-                                        kutatás célja olyan információvizualizációs eszközök vizsgálata és értékelése, amelyek a puzzlejátékosok döntési folyamatai mögött húzódó kognitív mechanizmusok feltárását és vizuális reprezentációját teszik lehetővé. A kutatás fő motivációja annak pontosabb megértése, hogy ezen vizuális megjelenítések miként támogathatják a játékosokat saját megoldási módszerük elemzésében, teljesítményük kiértékelésében, valamint alkalmazott stratégiájuk fejlesztési lehetőségeinek beazonosításában.
+                                        A kutatás célja olyan információvizualizációs eszközök vizsgálata és értékelése, amelyek a puzzlejátékosok döntési folyamatai mögött húzódó kognitív mechanizmusok feltárását és vizuális reprezentációját teszik lehetővé. A kutatás fő motivációja annak pontosabb megértése, hogy ezen vizuális megjelenítések miként támogathatják a játékosokat saját megoldási módszerük elemzésében, teljesítményük kiértékelésében, valamint alkalmazott stratégiájuk fejlesztési lehetőségeinek beazonosításában.
                                     </p>
 
-                                    <h4>📊 Analitikai Funkciók:</h4>
+                                    <h4>📊 Analitikai funkciók:</h4>
                                     <ul>
-                                        <li><strong>Időlenyomat (Heatmap):</strong> A darabok megoldási sorrendjének vizualizációja időbeli színkódolással</li>
-                                        <li><strong>Fogási pontok:</strong> A felhasználó által megfogott pozíciók sűrűségtérképe</li>
+
+                                        <li><strong>Időlenyomat:</strong> A darabok megoldási sorrendjének vizualizációja időbeli színkódolással.</li>
+                                        <li><strong>Interakciók száma:</strong> A darabokkal végzett műveletek számát ábrázolja, beleértve a mozgatásokat és a forgatásokat.</li>
+                                        <li><strong>Mozgási távolság:</strong> A darabok által bejárt utak hosszát reprezentálja.</li>
+                                        <li><strong>Elkapási pontok:</strong> A felhasználó általi kattintások sűrűségtérképe.</li>
+                                        <li><strong>Külső illesztések:</strong> A kirakási területen kívül összeillesztett darabkák csoportjainak lenyomata.</li>
                                         <!--<li><strong>Kapcsolatok nézet:</strong> A darabok közötti térbeli relációk és illesztési kísérletek</li>-->
-                                        <li><strong>Mozgási útvonalak:</strong> Egyedi darabok teljes mozgástörténete időbeli színátmenettel</li>
-                                        <li><strong>Teljesítmény metrikák:</strong> Hatékonyság, sebesség, pontosság statisztikai elemzése</li>
+                                        <li><strong>Mozgási útvonalak:</strong> Egyedi darabok teljes mozgástörténete időbeli színátmenettel.</li>
+                                        <li><strong>Teljesítmény metrikák:</strong> Hatékonyság, sebesség, pontosság statisztikai elemzése.</li>
                                     </ul>
 
                                     <p>
 
                                         <strong>Technológiák:</strong> p5.js, Flask (Python), Canvas API, LocalStorage API<br>
                                         <strong>Licenc:</strong> Kutatási célú szoftver<br>
-                                        <strong>Verzió:</strong> 1.0.0 (2026)
+                                        <strong>Verzió:</strong> 1.1.0 (2026)
                                     </p>
                                 </div>
 
                                 <!-- Research Info (English) -->
                                 <div class="about-section" data-lang-section="en">
-                                    <h3>🧩 FragmentVis – Data Visualization-Based Analysis of Puzzle Players’ Solution Strategies</h3>
+                                    <h3>🧩 FragmentVis – Data visualization-based analysis of puzzle players’ solution strategies</h3>
 
                                     <p style="text-align:justify;">
-                                        <strong>Research Objective:</strong> FragmentVis is an interactive visualization system designed to analyze solution strategies in jigsaw puzzle games. The system records and visualizes player interactions in real time, providing deeper insight into the cognitive processes underlying spatial problem-solving.
+                                        <strong>Research objective:</strong> FragmentVis is an interactive visualization system designed to analyze solution strategies in jigsaw puzzle games. The system records and visualizes player interactions in real time, providing deeper insight into the cognitive processes underlying spatial problem-solving.
                                         The research aims to investigate and evaluate information visualization tools that enable the exploration and visual representation of the cognitive mechanisms underlying puzzle players’ decision-making processes. The primary motivation of the study is to achieve a more precise understanding of how such visual representations can support players in analyzing their own solution methods, evaluating their performance, and identifying potential improvements in their applied strategies.
                                     </p>
 
-                                    <h4>📊 Analytical Features:</h4>
+                                    <h4>📊 Analytical features:</h4>
                                     <ul>
-                                        <li><strong>Temporal Heatmap:</strong> Visualization of piece placement order using time-based color coding</li>
-                                        <li><strong>Grasp Points:</strong> Density map of user interaction points where pieces were picked up</li>
-                                        <li><strong>Connections View:</strong> Spatial relationships and fitting attempts between puzzle pieces</li>
-                                        <li><strong>Movement Trajectories:</strong> Complete movement history of individual pieces with temporal color gradients</li>
-                                        <li><strong>Performance Metrics:</strong> Statistical analysis of efficiency, speed, and accuracy</li>
+                                        <li><strong>Time imprint:</strong> Visualization of the order in which pieces are placed, using temporal color encoding.</li>
+                                        <li><strong>Number of interactions:</strong> Displays the frequency of operations performed on pieces, including movements and rotations.</li>
+                                        <li><strong>Movement distance:</strong> Represents the total path length traveled by individual pieces.</li>
+                                        <li><strong>Grab points:</strong> Visualization of user interaction points based on mouse clicks.</li>
+                                        <li><strong>Off-grid assemblies:</strong> Captures groups of pieces assembled outside the main puzzle area.</li>
+                                        <!--<li><strong>Relations View:</strong> Spatial relationships and fitting attempts between pieces.</li>-->
+                                        <li><strong>Movement paths:</strong> Full movement history of individual pieces with temporal color gradients.</li>
+                                        <li><strong>Performance metrics:</strong> Statistical analysis of efficiency, speed, and accuracy.</li>
                                     </ul>
 
                                     <p>
                                         <strong>Technologies:</strong> p5.js, Flask (Python), Canvas API, LocalStorage API<br>
                                         <strong>License:</strong> Research-use software<br>
-                                        <strong>Version:</strong> 1.0.0 (2026)
+                                        <strong>Version:</strong> 1.1.0 (2026)
                                     </p>
 
                                 </div>

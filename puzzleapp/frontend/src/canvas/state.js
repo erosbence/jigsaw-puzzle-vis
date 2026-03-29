@@ -184,7 +184,7 @@ export function registerWrongLink(a, b, t) { /* intentionally disabled */ }
 export function listWrongLinks() { return []; }
 export function clearWrongLinks() { /* intentionally disabled */ }
 
-export function addGlobalSnapshot(piecesArr) {
+export function addGlobalSnapshot(piecesArr, layout) {
   // Adaptive throttle: skip recordings when snapshot count is very high
   if (globalSnapshots.length > 2000) {
     addGlobalSnapshot._skipCounter = (addGlobalSnapshot._skipCounter || 0) + 1;
@@ -200,6 +200,10 @@ export function addGlobalSnapshot(piecesArr) {
     groupMap.set(groups[gi], gi + 1);
   }
 
+  const snapOriginX = (layout && layout.originX != null) ? layout.originX : null;
+  const snapOriginY = (layout && layout.originY != null) ? layout.originY : null;
+  const snapS      = (layout && layout.s      != null) ? layout.s      : null;
+
   const positions = {};
   for (const p of piecesArr || []) {
     if (!p || typeof p.index === 'undefined') continue;
@@ -210,7 +214,10 @@ export function addGlobalSnapshot(piecesArr) {
       sh: p.sh || 0,
       metaX: (p.meta && p.meta.x) || 0,
       metaY: (p.meta && p.meta.y) || 0,
-      groupId: (p.group && groupMap.get(p.group)) || null
+      groupId: (p.group && groupMap.get(p.group)) || null,
+      snapOriginX,
+      snapOriginY,
+      snapS
     };
   }
   const idx = globalSnapshots.length;

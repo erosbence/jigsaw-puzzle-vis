@@ -1,5 +1,5 @@
 import { wireControls } from "./ui/controls.js";
-import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections, drawMovementPaths, handlePathsClick, drawAdjacencyMatrix, drawDashboard, handleDashboardClick, setDashboardSelectedPiece, drawOffGridAssemblies, handleOffGridClick, computeAdjacencyHoverKey, shapeProfileResizeHitTest, startShapeProfileResize, updateShapeProfileResize, stopShapeProfileResize, isShapeProfileDragging } from "./canvas/draw.js";
+import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections, drawMovementPaths, handlePathsClick, drawAdjacencyMatrix, drawDashboard, handleDashboardClick, setDashboardSelectedPiece, drawOffGridAssemblies, handleOffGridClick, computeAdjacencyHoverKey, shapeProfileResizeHitTest, startShapeProfileResize, updateShapeProfileResize, stopShapeProfileResize, isShapeProfileDragging, handleShapeProfilePopupWheel } from "./canvas/draw.js";
 import { styleState, setCanvasSize, puzzleGrid, timerState, listPieces, setHoverPiece, hoverPiece, gameSettings, viewSettings, puzzleMeta, rgbButtonPositions, setRGBMapProjection, rgbMapProjection, matrixGroupingButtonPos, toggleMatrixGrouping, completionState } from "./canvas/state.js";
 import { clampPiece, groupAlphaHit, targetTopLeft, shufflePieces } from "./canvas/interaction.js";
 import { Group } from "./canvas/group.js";
@@ -35,6 +35,13 @@ window.setup = function () {
   const wheelThrottle = 200; // ms
 
   canvas.elt.addEventListener('wheel', (e) => {
+    // Priority 0: Shape profile popup scroll (dashboard drill-down)
+    if (styleState.analyticsView === "dashboard" && handleShapeProfilePopupWheel(e.deltaY)) {
+      e.preventDefault();
+      redraw();
+      return;
+    }
+
     // Priority 1: Zoom (if enabled and not in analytics view)
     if (viewSettings.zoomEnabled && styleState.analyticsView === "none") {
       e.preventDefault();

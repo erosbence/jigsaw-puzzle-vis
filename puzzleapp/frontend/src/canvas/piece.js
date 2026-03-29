@@ -1,4 +1,4 @@
-import { styleState } from "./state.js";
+import { styleState, puzzleMeta, puzzleGrid } from "./state.js";
 import { targetTopLeft } from "./interaction.js";
 
 export class PuzzlePiece {
@@ -89,30 +89,59 @@ export class PuzzlePiece {
     return m[e.top] + m[e.right] + m[e.bottom] + m[e.left];
   }
 
-  // Detect tab vs blank on a non-flat edge by sampling alpha in outer band
+  // Detect tab vs blank on a non-flat edge by sampling alpha in the outer
+  // band at the TRUE base-cell centre.  The grid metadata (puzzleMeta) and
+  // the piece's original bounding box (this.meta) let us compute where the
+  // base cell centre falls in the piece's local pixel coordinates, so the
+  // sampling window is immune to shifts caused by orthogonal tab protrusions.
+  //  – Tab: opaque at base-cell centre of the outer band  → ratio high → "tab"
+  //  – Blank: transparent (socket opening) at the same spot → ratio low  → "blank"
   _detectEdge(side) {
     const px = this.img.pixels;
     const w = this.w, h = this.h;
     if (!px || !w || !h) return "blank";
+
+    // --- Compute the base-cell centre in local pixel coords ---------------
+    const gw = puzzleMeta.maxX - puzzleMeta.minX;
+    const gh = puzzleMeta.maxY - puzzleMeta.minY;
+    const cellW = gw / puzzleGrid.cols;
+    const cellH = gh / puzzleGrid.rows;
+    // Global centre of this piece's base cell
+    const gcx = puzzleMeta.minX + (this.c + 0.5) * cellW;
+    const gcy = puzzleMeta.minY + (this.r + 0.5) * cellH;
+    // Convert to local image coordinates
+    const lcx = gcx - this.meta.x;          // centre X in piece image
+    const lcy = gcy - this.meta.y;          // centre Y in piece image
+
     const band = Math.max(2, Math.round(Math.min(w, h) * 0.04));
+    // Sampling half-window: 10 % of the base cell dimension (narrow, centred)
+    const hwX = Math.max(4, Math.round(cellW * 0.10));
+    const hwY = Math.max(4, Math.round(cellH * 0.10));
+
     let opaque = 0, total = 0;
+
     if (side === "top") {
-      const x0 = Math.floor(w * 0.3), x1 = Math.ceil(w * 0.7);
+      const x0 = Math.max(0, Math.round(lcx - hwX));
+      const x1 = Math.min(w, Math.round(lcx + hwX));
       for (let y = 0; y < band && y < h; y++)
         for (let x = x0; x < x1; x++) { if (px[4 * (y * w + x) + 3] > 10) opaque++; total++; }
     } else if (side === "bottom") {
-      const x0 = Math.floor(w * 0.3), x1 = Math.ceil(w * 0.7);
+      const x0 = Math.max(0, Math.round(lcx - hwX));
+      const x1 = Math.min(w, Math.round(lcx + hwX));
       for (let y = Math.max(0, h - band); y < h; y++)
         for (let x = x0; x < x1; x++) { if (px[4 * (y * w + x) + 3] > 10) opaque++; total++; }
     } else if (side === "left") {
-      const y0 = Math.floor(h * 0.3), y1 = Math.ceil(h * 0.7);
+      const y0 = Math.max(0, Math.round(lcy - hwY));
+      const y1 = Math.min(h, Math.round(lcy + hwY));
       for (let y = y0; y < y1; y++)
         for (let x = 0; x < band && x < w; x++) { if (px[4 * (y * w + x) + 3] > 10) opaque++; total++; }
     } else {
-      const y0 = Math.floor(h * 0.3), y1 = Math.ceil(h * 0.7);
+      const y0 = Math.max(0, Math.round(lcy - hwY));
+      const y1 = Math.min(h, Math.round(lcy + hwY));
       for (let y = y0; y < y1; y++)
         for (let x = Math.max(0, w - band); x < w; x++) { if (px[4 * (y * w + x) + 3] > 10) opaque++; total++; }
     }
+
     return (total > 0 && opaque / total > 0.3) ? "tab" : "blank";
   }
 
