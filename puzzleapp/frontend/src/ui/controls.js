@@ -7,7 +7,7 @@ import { uploadPuzzle } from "../api/client.js";
 import { initI18n, t, getLang, applyTranslations } from "./i18n.js";
 import { gridRectScaled } from "./layout.js";
 import { zoomState, resetZoom, zoomIn, zoomOut, screenToWorld } from "../canvas/zoom.js";
-import { initSession, recordGameStart, recordGrab, recordGameComplete, getCurrentGame } from "../analytics/sessionStats.js";
+import { initSession, recordGameStart, recordGrab, recordGameComplete, getCurrentGame, getSessionData } from "../analytics/sessionStats.js";
 import { initStatsModal, showStatsModal } from "./statsModal.js";
 import { startCelebration } from "./completion.js";
 
@@ -1066,10 +1066,106 @@ function tryMergeGroupsOnRelease(g) {
 
 function setStartScreenVisible(show) {
   document.body.classList.toggle('game-started', !show);
+  if (show) {
+    selectedSize = null;
+    const gallerySection = document.getElementById('gallerySection');
+    const wizardColumns = document.getElementById('wizardColumns');
+    if (selectedItemId) {
+      gallerySection.style.display = 'none';
+      gallerySection.classList.remove('gallery-fading');
+      updateWizardHint('imageSelected');
+      buildSelectedCardPreview(selectedItem());
+      renderSizeOptions();
+      document.getElementById('wizardStep2').style.display = '';
+      document.getElementById('wizardStep3').style.display = 'none';
+      document.getElementById('selectedSizeBadge').style.display = 'none';
+      wizardColumns.style.display = 'grid';
+    } else {
+      gallerySection.style.display = '';
+      gallerySection.classList.remove('gallery-fading');
+      updateWizardHint('wizardPickImage');
+      wizardColumns.style.display = 'none';
+    }
+    updateSelectionUI();
+    updateStatsVisibility();
+  }
+}
+
+function updateStatsVisibility() {
+  const btn = document.getElementById('showStats');
+  if (!btn) return;
+  const session = getSessionData();
+  const hasPlayed = session.games && session.games.some(g => g.completed !== null);
+  btn.style.display = hasPlayed ? '' : 'none';
+}
+
+function updateWizardHint(key) {
+  const hint = document.querySelector('.start-hint');
+  if (!hint) return;
+  hint.dataset.i18n = key;
+  hint.textContent = t(key);
 }
 
 function selectedItem() {
   return galleryItems.find(i => i.id === selectedItemId) || null;
+}
+
+function buildSelectedCardPreview(item) {
+  const lang = getLang();
+  const title = item.title[lang] || item.title.hu;
+  const preview = document.getElementById('selectedCardPreview');
+  preview.innerHTML = `
+    <img src="${item.preview}" alt="${title}" />
+    <div class="card-body">
+      <div class="title">${title}</div>
+      <div class="sizes">${t("available")}: ${Object.keys(item.sizes).map(k => k.replace('x', '×')).join(", ")}</div>
+    </div>`;
+  preview.style.animation = 'none';
+  void preview.offsetWidth;
+  preview.style.animation = '';
+}
+
+function showWizardStep2(item) {
+  const gallerySection = document.getElementById('gallerySection');
+  const wizardColumns = document.getElementById('wizardColumns');
+  gallerySection.classList.add('gallery-fading');
+  setTimeout(() => {
+    gallerySection.style.display = 'none';
+    gallerySection.classList.remove('gallery-fading');
+    updateWizardHint('imageSelected');
+    buildSelectedCardPreview(item);
+    renderSizeOptions();
+    const step2 = document.getElementById('wizardStep2');
+    const step3 = document.getElementById('wizardStep3');
+    step2.style.display = '';
+    step3.style.display = 'none';
+    document.getElementById('selectedSizeBadge').style.display = 'none';
+    step2.classList.remove('wizard-panel-slide-in');
+    void step2.offsetWidth;
+    step2.classList.add('wizard-panel-slide-in');
+    wizardColumns.style.display = 'grid';
+    updateStartButton();
+  }, 250);
+}
+
+function showWizardStep3() {
+  const step2 = document.getElementById('wizardStep2');
+  const step3 = document.getElementById('wizardStep3');
+  const sizeBadge = document.getElementById('selectedSizeBadge');
+  step2.classList.add('wizard-panel-slide-out');
+  setTimeout(() => {
+    step2.style.display = 'none';
+    step2.classList.remove('wizard-panel-slide-out');
+    sizeBadge.innerHTML = `<span class="badge-label">${t('sizeTitle')}:</span><span class="badge-val">${selectedSize.replace('x', '×')}</span>`;
+    sizeBadge.style.display = '';
+    sizeBadge.classList.remove('size-badge-entering');
+    void sizeBadge.offsetWidth;
+    sizeBadge.classList.add('size-badge-entering');
+    step3.style.display = '';
+    step3.classList.remove('wizard-panel-slide-in');
+    void step3.offsetWidth;
+    step3.classList.add('wizard-panel-slide-in');
+  }, 200);
 }
 
 function renderGallery() {
@@ -1086,15 +1182,15 @@ function renderGallery() {
       <img src="${item.preview}" alt="${title}" />
       <div class="card-body">
         <div class="title">${title}</div>
-        <div class="sizes">${t("available")}: ${Object.keys(item.sizes).join(", ")}</div>
+        <div class="sizes">${t("available")}: ${Object.keys(item.sizes).map(k => k.replace('x', '×')).join(", ")}</div>
       </div>
     `;
     card.addEventListener('click', () => {
       selectedItemId = item.id;
       selectedSize = null;
       updateSelectionUI();
-      renderSizeOptions();
       updateStartButton();
+      showWizardStep2(item);
     });
     grid.appendChild(card);
   }
@@ -1112,12 +1208,13 @@ function renderSizeOptions() {
     const btn = document.createElement('button');
     btn.type = "button";
     btn.className = "size-btn";
-    btn.textContent = sizeKey;
+    btn.textContent = sizeKey.replace('x', '×');
     btn.dataset.size = sizeKey;
     btn.addEventListener('click', () => {
       selectedSize = sizeKey;
       updateSelectionUI();
       updateStartButton();
+      showWizardStep3();
     });
     container.appendChild(btn);
   }
@@ -1453,10 +1550,30 @@ export function wireControls() {
   initSession(); // Initialize session tracking
   initStatsModal(); // Initialize statistics modal
   renderGallery();
-  renderSizeOptions();
   updateStartButton();
   setStartScreenVisible(true);
   resetTimer();
+
+  document.getElementById('changeImageBtn')?.addEventListener('click', () => {
+    selectedItemId = null;
+    selectedSize = null;
+    const gallerySection = document.getElementById('gallerySection');
+    const wizardColumns = document.getElementById('wizardColumns');
+    // Animate wizard columns sliding out to the right
+    wizardColumns.classList.add('wizard-columns-fly-out');
+    setTimeout(() => {
+      wizardColumns.style.display = 'none';
+      wizardColumns.classList.remove('wizard-columns-fly-out');
+      // Show gallery at opacity 0, then let CSS transition fade it in
+      gallerySection.classList.add('gallery-fading');
+      gallerySection.style.display = '';
+      void gallerySection.offsetWidth;
+      gallerySection.classList.remove('gallery-fading');
+      updateWizardHint('wizardPickImage');
+      updateSelectionUI();
+      updateStartButton();
+    }, 250);
+  });
   const tabSettings = document.getElementById('tabSettings');
   const tabAnalytics = document.getElementById('tabAnalytics');
   const settingsPanel = document.getElementById('settingsPanel');
@@ -1853,7 +1970,7 @@ export function wireControls() {
     // Check if image is selected
     if (!selectedItemId) {
       if (sizeError) {
-        sizeError.textContent = t('startHint'); // "Válassz képet a galériából, majd add meg a méretet."
+        sizeError.textContent = t('selectImageFirst');
         sizeError.style.display = 'block';
         setTimeout(() => {
           sizeError.style.display = 'none';
@@ -1890,8 +2007,8 @@ export function wireControls() {
     });
   }
 
-  // About button
-  const showAboutBtn = document.getElementById('showAbout');
+  // About button (header info icon)
+  const showAboutBtn = document.getElementById('showAboutBtn');
   const aboutModal = document.getElementById('aboutModal');
   const aboutModalClose = document.getElementById('aboutModalClose');
 
@@ -1948,7 +2065,9 @@ export function wireControls() {
       }
       updateAnalyticsDesc();
       renderGallery();
-      renderSizeOptions();
+      // Re-render size options if image is selected (step 2 visible)
+      if (selectedItemId) buildSelectedCardPreview(selectedItem());
+      if (selectedItemId) renderSizeOptions();
       updateStartButton();
     });
   });

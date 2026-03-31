@@ -1,6 +1,6 @@
 import { gridRectScaled } from "../ui/layout.js";
 import { t } from "../ui/i18n.js";
-import { styleState, puzzleMeta, listPieces, listWrongLinks, globalSnapshots, connectionsState, puzzleGrid, hoverPiece, getPieceInteractionMatrix, matrixHoverState, setMatrixHoverState, rgbMapProjection, setRGBMapProjection, setRGBButtonPositions, clearRGBButtonPositions, getMatrixGroupingEnabled, setMatrixGroupingButtonPos, clearMatrixGroupingButtonPos, matrixCurrentOrder, setMatrixCurrentOrder, matrixAnimationState, startMatrixAnimation, getMatrixAnimationProgress, pathsState, togglePathsPiece } from "./state.js";
+import { styleState, puzzleMeta, listPieces, listWrongLinks, globalSnapshots, connectionsState, puzzleGrid, hoverPiece, getPieceInteractionMatrix, matrixHoverState, setMatrixHoverState, rgbMapProjection, setRGBMapProjection, setRGBButtonPositions, clearRGBButtonPositions, getMatrixGroupingEnabled, setMatrixGroupingButtonPos, clearMatrixGroupingButtonPos, matrixCurrentOrder, setMatrixCurrentOrder, matrixAnimationState, startMatrixAnimation, getMatrixAnimationProgress, pathsState, togglePathsPiece, gameSettings } from "./state.js";
 import { averagePieceDiagonal } from "./interaction.js";
 
 export function drawBackground(width, height) {
@@ -2281,6 +2281,7 @@ export const dashboardState = {
   shapeProfileCustomH: null,   // null = auto height, number = user-dragged height in px
   shapeProfileSelectedType: null, // null | "corner" | "edge" | "interior" — drill-down popup
   shapeProfilePopupScrollY: 0, // scroll offset for drill-down popup content
+  shapeProfileActiveInfo: null, // null | 0 | 1 | 2 | 3 — active metric info tooltip index
 };
 
 // --- Shape profile resize drag state ---
@@ -2481,6 +2482,9 @@ export function handleShapeProfilePopupWheel(deltaY) {
 export function handleDashboardClick(mouseX, mouseY, width, height, rows, cols) {
   if (!rows || !cols) return null;
 
+  const _prevActiveInfo = dashboardState.shapeProfileActiveInfo;
+  dashboardState.shapeProfileActiveInfo = null; // dismiss tooltip on any click
+
   // Dashboard layout calculation (MUST MATCH drawDashboard exactly)
   const padding = 20;
   const gapBetween = 15;
@@ -2522,6 +2526,14 @@ export function handleDashboardClick(mouseX, mouseY, width, height, rows, cols) 
         return { _shapePopupClose: true };
       }
       return { _shapePopupInside: true };
+    }
+    // Check if clicking on a metric info icon
+    for (const ib of _shapeProfileInfoBounds) {
+      const dx = mouseX - ib.cx, dy = mouseY - ib.cy;
+      if (dx * dx + dy * dy <= (ib.r + 2) * (ib.r + 2)) {
+        dashboardState.shapeProfileActiveInfo = (_prevActiveInfo === ib.metricIdx) ? null : ib.metricIdx;
+        return { _shapeInfoToggle: true };
+      }
     }
     // Check if clicking on a category row
     for (const rb of _shapeProfileRowBounds) {
@@ -3210,6 +3222,8 @@ const _shapeProfileCache = {
 let _shapeProfileRowBounds = []; // [{key, x, y, w, h}, ...]
 // Popup bounds for outside-click detection
 let _shapeProfilePopupBounds = null; // {x, y, w, h} or null
+// Info icon bounds for metric tooltip click detection
+let _shapeProfileInfoBounds = []; // [{metricIdx, desc, cx, cy, r}, ...]
 
 function getShapeProfileData(rows, cols, pieces) {
   const snapCount = globalSnapshots.length;
@@ -3281,6 +3295,51 @@ function getShapeProfileData(rows, cols, pieces) {
   _shapeProfileCache.pieceCount = pieces.length;
   _shapeProfileCache.snapCount = snapCount;
   return data;
+}
+
+// Draw info tooltip bubble for a shape profile metric
+function drawShapeMetricInfoTooltip(ib) {
+  const padding = 10;
+  const tooltipMaxW = 215;
+  const lineH = 15;
+  push();
+  textSize(11);
+  textStyle(NORMAL);
+  textAlign(LEFT, TOP);
+  // Word-wrap text using textWidth for accurate line breaking
+  const words = ib.desc.split(' ');
+  const lines = [];
+  let line = '';
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (textWidth(test) > tooltipMaxW - padding * 2 && line) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  const ttW = tooltipMaxW;
+  const ttH = lines.length * lineH + padding * 2;
+  let ttX = ib.cx - ttW / 2;
+  let ttY = ib.cy + ib.r + 8;
+  if (ttX < 4) ttX = 4;
+  if (ttX + ttW > width - 4) ttX = width - ttW - 4;
+  if (ttY + ttH > height - 4) ttY = ib.cy - ib.r - 8 - ttH;
+  // Shadow
+  noStroke();
+  fill(0, 0, 0, 40);
+  rect(ttX + 2, ttY + 2, ttW, ttH, 7);
+  // Background
+  fill(28, 30, 42, 242);
+  rect(ttX, ttY, ttW, ttH, 7);
+  // Text
+  fill(235, 240, 255);
+  for (let i = 0; i < lines.length; i++) {
+    text(lines[i], ttX + padding, ttY + padding + i * lineH);
+  }
+  pop();
 }
 
 // Draw collapsed toggle header for shape profile
@@ -3358,11 +3417,15 @@ function drawShapeProfilePanel(x, y, w, h, rows, cols, pieces) {
   text("▲", x + w - 10, y + toggleH / 2);
 
   const data = getShapeProfileData(rows, cols, pieces);
-  const entries = [
+  const allEntryDefs = [
     { key: "corner",   label: t("shapeCorner") || "Sarok",  color: [80, 152, 220],  data: data.corner },
     { key: "edge",     label: t("shapeEdge") || "Szél",     color: [76, 175, 80],   data: data.edge },
     { key: "interior", label: t("shapeInterior") || "Belső", color: [156, 39, 176],  data: data.interior },
   ];
+  // 2×2 puzzles only have corner pieces — hide the other categories
+  const entries = (rows === 2 && cols === 2)
+    ? allEntryDefs.filter(e => e.key === "corner")
+    : allEntryDefs;
 
   // Content area below toggle header
   const contentY = y + toggleH;
@@ -3378,7 +3441,8 @@ function drawShapeProfilePanel(x, y, w, h, rows, cols, pieces) {
   const warningW = 28; // space for ⚠ indicators + click arrow
   const barAreaX = x + silSize + 8 + labelW;
   const barAreaW = w - silSize - 8 - labelW - warningW - 10;
-  const metricW = barAreaW / 4;
+  const showRotation = gameSettings.rotationEnabled;
+  const metricW = barAreaW / (showRotation ? 4 : 3);
   const barH = Math.max(6, rowH * 0.28);
   const valLabelGap = 3; // gap between bar bottom and value text center
   const barUnitH = barH + valLabelGap + 10; // bar + gap + ~10px text
@@ -3392,20 +3456,50 @@ function drawShapeProfilePanel(x, y, w, h, rows, cols, pieces) {
     if (e.data.movement > maxMove) maxMove = e.data.movement;
   }
 
-  // Draw metric column headers
-  push();
-  noStroke();
-  fill(110);
-  textSize(10);
-  textAlign(CENTER, CENTER);
+  // Draw metric column headers with ⓘ info icons
   const metricLabels = [
     t("shapeMetricGrabs") || "Elkapás",
-    t("shapeMetricRotations") || "Forgatás",
+    ...(showRotation ? [t("shapeMetricRotations") || "Forgatás"] : []),
     t("shapeMetricTime") || "Idő",
     t("shapeMetricMovement") || "Mozgás"
   ];
-  for (let m = 0; m < 4; m++) {
-    text(metricLabels[m], barAreaX + m * metricW + metricW / 2, contentY + headerH / 2);
+  const metricDescs = [
+    t("shapeMetricGrabsDesc") || "Átlagosan hányszor kaptuk el az adott típus darabjait.",
+    ...(showRotation ? [t("shapeMetricRotationsDesc") || "Átlagosan hányszor forgattuk meg az adott típus darabjait."] : []),
+    t("shapeMetricTimeDesc") || "Átlagosan hányadik másodpercben kerültek a helyükre az adott típus darabjai.",
+    t("shapeMetricMovementDesc") || "Átlagosan mekkora utat tett meg az adott típus minden egyes darabja."
+  ];
+  _shapeProfileInfoBounds = [];
+  push();
+  const iR = 5;
+  const headerCY = contentY + headerH / 2;
+  textSize(10);
+  textAlign(CENTER, CENTER);
+  for (let m = 0; m < metricLabels.length; m++) {
+    const colCX = barAreaX + m * metricW + metricW / 2;
+    const labelTW = textWidth(metricLabels[m]);
+    const icx = colCX + labelTW / 2 + iR + 3;
+    const isActive = dashboardState.shapeProfileActiveInfo === m;
+    const dx = mouseX - icx, dy = mouseY - headerCY;
+    const isHovered = !isActive && dx * dx + dy * dy <= (iR + 2) * (iR + 2);
+    // Label
+    noStroke();
+    fill(110);
+    text(metricLabels[m], colCX, headerCY);
+    // Info icon circle
+    fill(isActive ? 60 : isHovered ? 75 : 140,
+         isActive ? 130 : isHovered ? 150 : 160,
+         isActive ? 220 : isHovered ? 230 : 205,
+         220);
+    circle(icx, headerCY, iR * 2);
+    // "i" character
+    fill(255);
+    textSize(7.5);
+    textStyle(BOLD);
+    text("i", icx, headerCY - 0.5);
+    textStyle(NORMAL);
+    textSize(10);
+    _shapeProfileInfoBounds.push({ metricIdx: m, desc: metricDescs[m], cx: icx, cy: headerCY, r: iR });
   }
   pop();
 
@@ -3454,17 +3548,17 @@ function drawShapeProfilePanel(x, y, w, h, rows, cols, pieces) {
     text(`${e.label} (${e.data.count})`, x + silSize + 14, ry + rowH / 2);
     textStyle(NORMAL);
 
-    // --- 4 metric bars ---
+    // --- metric bars (3 or 4 depending on rotation setting) ---
     const metrics = [
-      { val: e.data.grabs,       max: maxGrabs,        color: [80, 152, 220] },
-      { val: e.data.rotations,   max: maxRot,          color: [156, 39, 176] },
-      { val: e.data.time / 1000, max: maxTime / 1000,  color: [245, 172, 66] },
-      { val: e.data.movement,    max: maxMove,         color: [76, 175, 80] }
+      { val: e.data.grabs,       max: maxGrabs,        color: [80, 152, 220],  fmt: 'count' },
+      ...(showRotation ? [{ val: e.data.rotations, max: maxRot, color: [156, 39, 176], fmt: 'count' }] : []),
+      { val: e.data.time / 1000, max: maxTime / 1000,  color: [245, 172, 66],  fmt: 'time' },
+      { val: e.data.movement,    max: maxMove,         color: [76, 175, 80],   fmt: 'px' }
     ];
     // Center the bar+label unit vertically within the row
     const barY = ry + Math.max(2, Math.round((rowH - barUnitH) / 2));
 
-    for (let m = 0; m < 4; m++) {
+    for (let m = 0; m < metrics.length; m++) {
       const mx = barAreaX + m * metricW + 2;
       const mw = metricW - 4;
       const frac = metrics[m].max > 0 ? metrics[m].val / metrics[m].max : 0;
@@ -3489,8 +3583,8 @@ function drawShapeProfilePanel(x, y, w, h, rows, cols, pieces) {
       textSize(9);
       textAlign(CENTER, TOP);
       let valText;
-      if (m === 2) valText = metrics[m].val.toFixed(1) + "s"; // time
-      else if (m === 3) valText = Math.round(metrics[m].val).toString() + "px"; // movement
+      if (metrics[m].fmt === 'time') valText = metrics[m].val.toFixed(1) + "s";
+      else if (metrics[m].fmt === 'px') valText = Math.round(metrics[m].val).toString() + "px";
       else valText = metrics[m].val.toFixed(1);
       text(valText, mx + mw / 2, barY + barH + valLabelGap);
       pop();
@@ -3540,6 +3634,12 @@ function drawShapeProfilePanel(x, y, w, h, rows, cols, pieces) {
     if (selEntry && selEntry.data.count > 0) {
       drawShapeProfilePopup(x, y, w, h, selEntry, data, rows, cols, startY, rowH, entries);
     }
+  }
+
+  // --- Draw metric info tooltip if active ---
+  if (dashboardState.shapeProfileActiveInfo !== null) {
+    const ib = _shapeProfileInfoBounds.find(b => b.metricIdx === dashboardState.shapeProfileActiveInfo);
+    if (ib) drawShapeMetricInfoTooltip(ib);
   }
 
   pop();
@@ -3645,7 +3745,8 @@ function drawShapeProfilePopup(panelX, panelY, panelW, panelH, entry, data, rows
   const badgeSectionW = 104; // 4 badges × 19px + count label space
   const barAreaX = popupX + popupPadding + badgeSectionW;
   const barAreaW = popupW - popupPadding * 2 - badgeSectionW;
-  const metricW = barAreaW / 4;
+  const showRotation = gameSettings.rotationEnabled;
+  const metricW = barAreaW / (showRotation ? 4 : 3);
 
   // Normalize max values across all signature groups
   let maxGrabs = 1, maxTime = 1, maxRot = 1, maxMove = 1;
@@ -3661,7 +3762,7 @@ function drawShapeProfilePopup(panelX, panelY, panelW, panelH, entry, data, rows
   let cy = popupY + headerH + popupPadding + descSectionH;
   const metricLabels = [
     t("shapeMetricGrabs") || "Grabs",
-    t("shapeMetricRotations") || "Rotations",
+    ...(showRotation ? [t("shapeMetricRotations") || "Rotations"] : []),
     t("shapeMetricTime") || "Time",
     t("shapeMetricMovement") || "Movement"
   ];
@@ -3670,7 +3771,7 @@ function drawShapeProfilePopup(panelX, panelY, panelW, panelH, entry, data, rows
   fill(110);
   textSize(10);
   textAlign(CENTER, CENTER);
-  for (let m = 0; m < 4; m++) {
+  for (let m = 0; m < metricLabels.length; m++) {
     text(metricLabels[m], barAreaX + m * metricW + metricW / 2, cy + colHeaderH / 2);
   }
   pop();
@@ -3750,15 +3851,15 @@ function drawShapeProfilePopup(panelX, panelY, panelW, panelH, entry, data, rows
     // Metric bars (averages per piece within this signature group)
     const n = detail.count || 1;
     const metrics = [
-      { val: detail.totalGrabs / n,         max: maxGrabs,        color: [80, 152, 220] },
-      { val: detail.totalRot / n,           max: maxRot,          color: [156, 39, 176] },
-      { val: detail.totalTime / n / 1000,   max: maxTime / 1000,  color: [245, 172, 66] },
-      { val: detail.totalDist / n,          max: maxMove,         color: [76, 175, 80] }
+      { val: detail.totalGrabs / n,         max: maxGrabs,        color: [80, 152, 220],  fmt: 'count' },
+      ...(showRotation ? [{ val: detail.totalRot / n, max: maxRot, color: [156, 39, 176], fmt: 'count' }] : []),
+      { val: detail.totalTime / n / 1000,   max: maxTime / 1000,  color: [245, 172, 66],  fmt: 'time' },
+      { val: detail.totalDist / n,          max: maxMove,         color: [76, 175, 80],   fmt: 'px' }
     ];
 
     const barY = cy + Math.round((sigRowH - barUnitH) / 2);
 
-    for (let m = 0; m < 4; m++) {
+    for (let m = 0; m < metrics.length; m++) {
       const mx = barAreaX + m * metricW + 2;
       const mw = metricW - 4;
       const frac = metrics[m].max > 0 ? metrics[m].val / metrics[m].max : 0;
@@ -3779,8 +3880,8 @@ function drawShapeProfilePopup(panelX, panelY, panelW, panelH, entry, data, rows
       textSize(9);
       textAlign(CENTER, TOP);
       let valText;
-      if (m === 2) valText = metrics[m].val.toFixed(1) + "s";
-      else if (m === 3) valText = Math.round(metrics[m].val).toString() + "px";
+      if (metrics[m].fmt === 'time') valText = metrics[m].val.toFixed(1) + "s";
+      else if (metrics[m].fmt === 'px') valText = Math.round(metrics[m].val).toString() + "px";
       else valText = metrics[m].val.toFixed(1);
       text(valText, mx + mw / 2, barY + barH + valLabelGap);
       pop();

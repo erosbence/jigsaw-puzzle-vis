@@ -11,6 +11,7 @@
     <h1 data-i18n="title2">🧩 Jigsaw Puzzle Vis</h1>
     <div class="header-right">
       <div class="subtitle" data-i18n="subtitle">A visual analytics system for jigsaw game performance analysis</div>
+      <button id="showAboutBtn" class="info-header-btn" type="button" aria-label="Info">ℹ</button>
       <div class="lang-switch">
         <button class="lang-btn" type="button" data-lang="hu" aria-label="Magyar">🇭🇺</button>
         <button class="lang-btn" type="button" data-lang="en" aria-label="English">🇬🇧</button>
@@ -20,40 +21,58 @@
 
   <section id="startScreen" class="start-screen">
     <div class="start-inner">
-      <div class="start-left">
-        <h2 data-i18n="startTitle">Puzzle kiválasztása</h2>
-        <p class="start-hint" data-i18n="startHint">Válassz képet a galériából, majd add meg a méretet.</p>
+      <div class="start-top-row">
+        <div>
+          <h2 data-i18n="startTitle">Puzzle kiválasztása</h2>
+          <p class="start-hint" data-i18n="wizardPickImage">Válassz egy képet!</p>
+        </div>
+      </div>
+      <button id="showStats" type="button" class="stats-corner-btn" style="display:none;">
+        <span class="corner-icon" aria-hidden="true">📊</span>
+        <span class="corner-label" data-i18n="statsLabel">Statisztikák</span>
+      </button>
+      <div id="gallerySection" class="gallery-section">
         <div id="galleryGrid" class="gallery-grid"></div>
       </div>
-      <div class="start-right">
-        <h3 data-i18n="sizeTitle">Méret</h3>
-        <div id="sizeOptions" class="size-options"></div>
-        <div class="difficulty-panel">
-          <h4 data-i18n="difficultySettings">Nehézségi szint beállítása</h4>
-          <div class="row" style="margin-top: 12px;">
-            <label for="rotationEnabled">
-              <input type="checkbox" id="rotationEnabled" />
-              <span data-i18n="rotationEnabled">Darabok elforgatva</span>
-            </label>
+
+      <div id="wizardColumns" class="wizard-columns" style="display:none;">
+        <div class="wizard-col-left">
+          <div id="selectedCardPreview" class="selected-card-preview"></div>
+          <div id="selectedSizeBadge" class="selected-size-badge" style="display:none;"></div>
+          <button id="changeImageBtn" class="ghost change-image-btn" type="button" data-i18n="changeImage">← Másik kép</button>
+        </div>
+        <div class="wizard-col-right">
+          <div id="wizardStep2" class="wizard-panel">
+            <h3 data-i18n="wizardPickSize">Válaszd ki a méretet!</h3>
+            <div id="sizeOptions" class="size-options"></div>
           </div>
-          <div id="rotationControls" style="display:none; margin-top: 8px;">
-            <div class="row">
-              <label for="rotationPercentage" data-i18n="rotationPercentage">Forgatott darabok aránya</label>
-              <input type="range" id="rotationPercentage" min="0" max="100" value="100" step="10" />
+          <div id="wizardStep3" class="wizard-panel" style="display:none;">
+            <h3 data-i18n="difficultySettings">Nehézségi szint beállítása</h3>
+            <div class="difficulty-panel">
+              <div class="row" style="margin-top: 0;">
+                <label for="rotationEnabled" class="rotation-label">
+                  <input type="checkbox" id="rotationEnabled" />
+                  <span data-i18n="rotationEnabled">Darabok elforgatva</span>
+                </label>
+              </div>
+              <div id="rotationControls" style="display:none; margin-top: 8px;">
+                <div class="row">
+                  <label for="rotationPercentage" data-i18n="rotationPercentage">Forgatott darabok aránya</label>
+                  <input type="range" id="rotationPercentage" min="0" max="100" value="100" step="10" />
+                </div>
+                <div class="row">
+                  <span class="hint"><span data-i18n="current">Aktuális:</span> <b id="rotationPercentageLbl">100%</b></span>
+                </div>
+                <div class="row" style="margin-top: 8px;">
+                  <span class="hint" data-i18n="rotationHint">💡 Tipp: Az egérgörgővel forgathatod a darabokat</span>
+                </div>
+              </div>
             </div>
-            <div class="row">
-              <span class="hint"><span data-i18n="current">Aktuális:</span> <b id="rotationPercentageLbl">100%</b></span>
-            </div>
-            <div class="row" style="margin-top: 8px;">
-              <span class="hint" data-i18n="rotationHint">💡 Tipp: Az egérgörgővel forgathatod a darabokat</span>
-            </div>
+            <button id="startGame" class="primary start-game-btn" type="button" data-i18n="startGame">Játék indítása</button>
+            <div id="sizeError" class="hint" style="display:none; color: #d32f2f; margin-top: 8px;"></div>
+            <div id="startLoading" class="hint" style="display:none;" data-i18n="loading">Betöltés…</div>
           </div>
         </div>
-        <button id="startGame" class="primary" type="button" disabled data-i18n="startGame">Játék indítása</button>
-        <div id="sizeError" class="hint" style="display:none; color: #d32f2f; margin-top: 8px;"></div>
-        <button id="showStats" class="ghost" type="button" data-i18n="showStats">📊 Statisztikák</button>
-        <button id="showAbout" class="ghost" type="button" data-i18n="showAbout">ℹ️ A kutatásról</button>
-        <div id="startLoading" class="hint" style="display:none;" data-i18n="loading">Betöltés…</div>
       </div>
     </div>
   </section>
