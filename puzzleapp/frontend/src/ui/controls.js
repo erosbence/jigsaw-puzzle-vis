@@ -2526,6 +2526,18 @@ export function wireControls() {
 
     // Check if puzzle is completed
     if (isPuzzleSolved() && !completionState.isComplete) {
+      // Force a completion snapshot so the fully-merged final state is always
+      // captured for analytics, even if the regular release snapshot above was
+      // skipped by the throttle (common in long 10×10+ games).
+      try {
+        const { originX: cOX, originY: cOY, s: cS } = gridRectScaled(bounds.w || 640, bounds.h || 640);
+        const cSnapIdx = addGlobalSnapshot(listPieces(), { originX: cOX, originY: cOY, s: cS }, true);
+        for (const p of listPieces()) {
+          if (!p) continue;
+          p.snapshots = p.snapshots || [];
+          p.snapshots.push(cSnapIdx);
+        }
+      } catch (_) {}
       stopTimer();
       setPuzzleComplete(true);
       setShowingComplete(true);

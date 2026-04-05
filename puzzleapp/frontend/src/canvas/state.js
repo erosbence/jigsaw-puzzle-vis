@@ -184,9 +184,9 @@ export function registerWrongLink(a, b, t) { /* intentionally disabled */ }
 export function listWrongLinks() { return []; }
 export function clearWrongLinks() { /* intentionally disabled */ }
 
-export function addGlobalSnapshot(piecesArr, layout) {
+export function addGlobalSnapshot(piecesArr, layout, force = false) {
   // Adaptive throttle: skip recordings when snapshot count is very high
-  if (globalSnapshots.length > 2000) {
+  if (!force && globalSnapshots.length > 2000) {
     addGlobalSnapshot._skipCounter = (addGlobalSnapshot._skipCounter || 0) + 1;
     const skipRate = globalSnapshots.length > 4000 ? 4 : 2;
     if (addGlobalSnapshot._skipCounter % skipRate !== 0) {
