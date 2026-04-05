@@ -63,7 +63,7 @@ const STRINGS = {
     connLegendTooClose: "Narancs: a darabok túl közel vannak egymáshoz, vagy rossz oldalon/irányban vannak egymáshoz képest",
     analyticsViewWrong: "Téves illesztések",
     analyticsDescWrong: "A piros vonalak jelzik a téves illesztési kísérleteket, összekötve a próbálkozó darabokat.",
-    analyticsViewDashboard: "Dashboard",
+    analyticsViewDashboard: "Dashboard: darabok",
     analyticsViewOffgrid: "Külső illesztések",
     analyticsViewConnDashboard: "Dashboard: kapcsolatok",
     analyticsDescDashboard: "A vizualizáció három diagramot tartalmaz. Az időlenyomat azt mutatja, hogy a darabok mikor és milyen sorrendben kerültek a helyükre. Az interakciók száma a darabokkal végzett műveletek gyakoriságát ábrázolja, beleértve a mozgatásokat és a forgatásokat. A mozgási távolság a darabok által bejárt út hosszát reprezentálja. Egy darabra kattintva az kijelölhető. Az alakprofil a darabok típus szerinti elemzését nyújtja.",
@@ -142,7 +142,7 @@ const STRINGS = {
     matrixGroupCenters: "Közép",
 
     // Dashboard
-    analyticsViewDashboard: "Dashboard",
+    analyticsViewDashboard: "Dashboard: darabok",
     dashboardTimeTitle: "Időlenyomat",
     dashboardInteractionTitle: "Interakciók száma",
     dashboardMovementTitle: "Mozgási Távolság",
@@ -309,7 +309,7 @@ const STRINGS = {
     analyticsViewConnections: "Connections",
     analyticsViewPaths: "Movement paths",
     analyticsViewAdjacency: "Adjacency matrix",
-    analyticsViewDashboard: "Dashboard",
+    analyticsViewDashboard: "Dashboard: Pieces",
     analyticsViewOffgrid: "Off-grid assemblies",
     analyticsViewConnDashboard: "Dashboard: Connections",
     analyticsDescNone: "Select a view to see analytics.",
