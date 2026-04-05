@@ -4576,33 +4576,33 @@ function drawFirstConnectionPanel(x, y, w, h, rows, cols, lookup, pieces) {
       }
       pop();
 
-      // 3. Partner pieces: glowing blue border
-      push();
-      noFill();
-      drawingContext.shadowBlur = 8;
-      drawingContext.shadowColor = 'rgba(50, 130, 240, 0.7)';
-      stroke(50, 130, 240); strokeWeight(2);
-      for (const pi of partners) {
-        const pb = pieceBoundsMap.get(pi);
-        if (!pb) continue;
-        rect(pb.x + 1, pb.y + 1, pb.w - 2, pb.h - 2, 2);
-      }
-      drawingContext.shadowBlur = 0;
-      pop();
+      // 3. Partner pieces: glowing blue border, 
+      //push();
+      //noFill();
+      //drawingContext.shadowBlur = 8;
+      //drawingContext.shadowColor = 'rgba(50, 130, 240, 0.7)';
+      //stroke(50, 130, 240); strokeWeight(2);
+      //for (const pi of partners) {
+      //  const pb = pieceBoundsMap.get(pi);
+      //  if (!pb) continue;
+      //  rect(pb.x + 1, pb.y + 1, pb.w - 2, pb.h - 2, 2);
+      //}
+      //drawingContext.shadowBlur = 0;
+      //pop();
 
       // 4. Selected piece: white border with strong blue glow + outer ring
-      push();
-      noFill();
-      drawingContext.shadowBlur = 16;
-      drawingContext.shadowColor = 'rgba(50, 130, 240, 1.0)';
-      stroke(255); strokeWeight(3);
-      rect(selB.x + 1, selB.y + 1, selB.w - 2, selB.h - 2, 3);
-      drawingContext.shadowBlur = 8;
-      drawingContext.shadowColor = 'rgba(50, 130, 240, 0.8)';
-      stroke(50, 130, 240); strokeWeight(2);
-      circle(selB.cx, selB.cy, Math.max(selB.w, selB.h) * 1.35);
-      drawingContext.shadowBlur = 0;
-      pop();
+      //push();
+      //noFill();
+      //drawingContext.shadowBlur = 16;
+      //drawingContext.shadowColor = 'rgba(50, 130, 240, 1.0)';
+      //stroke(255); strokeWeight(3);
+      //rect(selB.x + 1, selB.y + 1, selB.w - 2, selB.h - 2, 3);
+      //drawingContext.shadowBlur = 8;
+      //drawingContext.shadowColor = 'rgba(50, 130, 240, 0.8)';
+      //stroke(50, 130, 240); strokeWeight(2);
+      //circle(selB.cx, selB.cy, Math.max(selB.w, selB.h) * 1.35);
+      //drawingContext.shadowBlur = 0;
+      //pop();
     }
   }
 
