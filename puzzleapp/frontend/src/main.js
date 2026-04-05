@@ -1,5 +1,5 @@
 import { wireControls } from "./ui/controls.js";
-import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections, drawMovementPaths, handlePathsClick, drawAdjacencyMatrix, drawDashboard, handleDashboardClick, setDashboardSelectedPiece, drawOffGridAssemblies, handleOffGridClick, computeAdjacencyHoverKey, shapeProfileResizeHitTest, startShapeProfileResize, updateShapeProfileResize, stopShapeProfileResize, isShapeProfileDragging, handleShapeProfilePopupWheel } from "./canvas/draw.js";
+import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections, drawMovementPaths, handlePathsClick, drawAdjacencyMatrix, drawDashboard, handleDashboardClick, setDashboardSelectedPiece, drawOffGridAssemblies, handleOffGridClick, drawConnDashboard, handleFirstConnClick, clearFirstConnSelection, computeAdjacencyHoverKey, shapeProfileResizeHitTest, startShapeProfileResize, updateShapeProfileResize, stopShapeProfileResize, isShapeProfileDragging, handleShapeProfilePopupWheel, connGrowthResizeHitTest, startConnGrowthResize, updateConnGrowthResize, stopConnGrowthResize, isConnGrowthDragging } from "./canvas/draw.js";
 import { styleState, setCanvasSize, puzzleGrid, timerState, listPieces, setHoverPiece, hoverPiece, gameSettings, viewSettings, puzzleMeta, rgbButtonPositions, setRGBMapProjection, rgbMapProjection, matrixGroupingButtonPos, toggleMatrixGrouping, completionState } from "./canvas/state.js";
 import { clampPiece, groupAlphaHit, targetTopLeft, shufflePieces } from "./canvas/interaction.js";
 import { Group } from "./canvas/group.js";
@@ -132,7 +132,7 @@ window.draw = function () {
   }
 
   // Use white background for dashboard, gray for everything else
-  if (styleState.analyticsView === "dashboard") {
+  if (styleState.analyticsView === "dashboard" || styleState.analyticsView === "connDashboard") {
     background(255); // White
   } else {
     drawBackground(width, height);
@@ -180,6 +180,11 @@ window.draw = function () {
   }
   if (styleState.analyticsView === "offgrid") {
     drawOffGridAssemblies(width, height, listPieces());
+    pop();
+    return;
+  }
+  if (styleState.analyticsView === "connDashboard") {
+    drawConnDashboard(width, height, listPieces());
     pop();
     return;
   }
@@ -248,6 +253,33 @@ window.mousePressed = () => {
     }
   }
 
+  // Check connDashboard panel clicks
+  if (styleState.analyticsView === "connDashboard") {
+    const connPadding = 20;
+    const connGap = 15;
+    const panelW = (width - connPadding * 2 - connGap) / 2;
+    const rightX = connPadding + panelW + connGap;
+    // Check growth curve resize grip first (right panel, between heatmap and curve)
+    if (connGrowthResizeHitTest(mouseX, mouseY)) {
+      const { h } = canvasHostSize();
+      startConnGrowthResize(mouseY, h);
+      return;
+    }
+    if (mouseX < rightX) {
+      // Left panel — off-grid assemblies
+      if (mouseX >= connPadding && handleOffGridClick(mouseX - connPadding, mouseY)) {
+        redraw();
+        return;
+      }
+    } else {
+      // Right panel — first connection heatmap
+      if (handleFirstConnClick(mouseX, mouseY)) {
+        redraw();
+        return;
+      }
+    }
+  }
+
   // Check matrix grouping button FIRST (for adjacency matrix view)
   if (matrixGroupingButtonPos.visible) {
     const { x, y, w, h } = matrixGroupingButtonPos;
@@ -297,6 +329,15 @@ window.mousePressed = () => {
 };
 
 window.mouseDragged = () => {
+  // Handle connDashboard growth strip resize drag
+  if (isConnGrowthDragging()) {
+    cursor('ns-resize');
+    const { h } = canvasHostSize();
+    if (updateConnGrowthResize(mouseY, h)) {
+      redraw();
+    }
+    return;
+  }
   // Handle shape profile resize drag
   if (isShapeProfileDragging()) {
     cursor('ns-resize');
@@ -323,6 +364,12 @@ window.mouseReleased = () => {
     redraw();
     return;
   }
+  // Stop connDashboard growth strip resize
+  if (isConnGrowthDragging()) {
+    stopConnGrowthResize();
+    redraw();
+    return;
+  }
   // Stop panning if zoom is enabled
   // Note: Only stop pan if we were actually panning (not piece dragging)
   if (zoomState.isPanning) {
@@ -337,6 +384,7 @@ let lastMouseMoveTime = 0;
 const MOUSE_MOVE_THROTTLE = 100; // ms - increased for better 6x6 performance
 let _lastAdjHoverKey = null; // diff-based redraw for adjacency matrix view
 let _lastGripHover = false;  // diff-based redraw for shape profile resize grip
+let _lastConnGrowthGripHover = false; // diff-based redraw for connDashboard resize grip
 
 window.mouseMoved = () => {
   const now = Date.now();
@@ -365,6 +413,13 @@ window.mouseMoved = () => {
     cursor(onGrip ? 'ns-resize' : ARROW);
     if (onGrip !== _lastGripHover) {
       _lastGripHover = onGrip;
+      redraw();
+    }
+  } else if (styleState.analyticsView === "connDashboard") {
+    const onGrip = connGrowthResizeHitTest(mouseX, mouseY);
+    cursor(onGrip ? 'ns-resize' : ARROW);
+    if (onGrip !== _lastConnGrowthGripHover) {
+      _lastConnGrowthGripHover = onGrip;
       redraw();
     }
   }

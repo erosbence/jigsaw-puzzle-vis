@@ -2282,6 +2282,7 @@ export const dashboardState = {
   shapeProfileSelectedType: null, // null | "corner" | "edge" | "interior" — drill-down popup
   shapeProfilePopupScrollY: 0, // scroll offset for drill-down popup content
   shapeProfileActiveInfo: null, // null | 0 | 1 | 2 | 3 — active metric info tooltip index
+  connGrowthCustomH: null,       // null = auto; number = user-dragged curve strip height in px
 };
 
 // --- Shape profile resize drag state ---
@@ -2291,6 +2292,15 @@ const _spDrag = {
   startMouseY: 0,
   startH: 0,
 };
+
+// --- connDashboard growth strip resize drag state ---
+const _cgDrag = {
+  active: false,
+  resizing: false,
+  startMouseY: 0,
+  startH: 0,
+};
+let _connGrowthDividerBounds = null; // { x, y, w } canvas coords, updated each draw frame
 
 export function shapeProfileResizeHitTest(mx, my, width, height) {
   if (!dashboardState.shapeProfileExpanded) return false;
@@ -2342,6 +2352,43 @@ export function isShapeProfileDragging() {
   return _spDrag.active;
 }
 
+// --- connDashboard growth strip resize ---
+
+export function connGrowthResizeHitTest(mx, my) {
+  if (!_connGrowthDividerBounds) return false;
+  const { x, y, w } = _connGrowthDividerBounds;
+  return mx >= x && mx <= x + w && my >= y - 6 && my <= y + 6;
+}
+
+export function startConnGrowthResize(mouseY, canvasHeight) {
+  const defaultStripH = Math.max(100, Math.min(220, canvasHeight * 0.35));
+  _cgDrag.active   = true;
+  _cgDrag.resizing = false;
+  _cgDrag.startMouseY = mouseY;
+  _cgDrag.startH   = dashboardState.connGrowthCustomH || defaultStripH;
+}
+
+export function updateConnGrowthResize(mouseY, canvasHeight) {
+  if (!_cgDrag.active) return false;
+  if (!_cgDrag.resizing && Math.abs(mouseY - _cgDrag.startMouseY) < 5) return false;
+  _cgDrag.resizing = true;
+  const deltaY = _cgDrag.startMouseY - mouseY; // drag up → increase height
+  const newH   = _cgDrag.startH + deltaY;
+  const minH   = 80;
+  const maxH   = Math.max(minH, canvasHeight * 0.65);
+  dashboardState.connGrowthCustomH = Math.max(minH, Math.min(maxH, newH));
+  return true;
+}
+
+export function stopConnGrowthResize() {
+  _cgDrag.active   = false;
+  _cgDrag.resizing = false;
+}
+
+export function isConnGrowthDragging() {
+  return _cgDrag.active;
+}
+
 // --- Incremental caches to avoid recomputing heavy analytics every frame ---
 
 // Movement distance cache: only processes new snapshots incrementally
@@ -2360,6 +2407,22 @@ const _offgridCache = {
   lastSnapCount: 0,
   targetCentersKey: '',  // detect display size changes
 };
+
+// First-connection analysis cache
+const _firstConnCache = {
+  firstConnTime: null,     // Map<pieceIndex, timestamp>
+  firstConnPartners: null, // Map<pieceIndex, Set<partnerIndex>>
+  minTime: Infinity,
+  maxTime: -Infinity,
+  lastSnapCount: 0,
+};
+
+// Group size timeline cache (stacked area chart)
+let _groupTimelineCache = null;
+let _groupTimelineLastSnapCount = -1;
+let _groupTimelineNPieces = 0;
+let _growthCurveTimeFilter = null;   // null = no filter; timestamp = curve scrubber position
+let _growthCurveBounds = null;       // { drawX, drawY, availW, availH, minT, maxT, timeRange }
 
 // Matrix sort cache: avoids O(n²) greedy nearest-neighbor sort every frame
 const _matrixSortCache = {
@@ -2384,6 +2447,19 @@ export function resetDashboardCaches() {
   _offgridCache.maxTime = -Infinity;
   _offgridCache.lastSnapCount = 0;
   _offgridCache.targetCentersKey = '';
+  _firstConnCache.firstConnTime = null;
+  _firstConnCache.firstConnPartners = null;
+  _firstConnCache.minTime = Infinity;
+  _firstConnCache.maxTime = -Infinity;
+  _firstConnCache.lastSnapCount = 0;
+  _firstConnSelectedIdx = null;
+  _offgridSelectedJoinTime    = null;
+  _offgridSelectedJoinTimeEnd = null;
+  _groupTimelineCache = null;
+  _groupTimelineLastSnapCount = -1;
+  _groupTimelineNPieces = 0;
+  _growthCurveTimeFilter = null;
+  _growthCurveBounds = null;
   _matrixSortCache.result = null;
   _matrixSortCache.pieceIndicesKey = '';
   _adjLayout = null;
@@ -2393,6 +2469,7 @@ export function resetDashboardCaches() {
   _shapeProfileRowBounds = [];
   _shapeProfilePopupBounds = null;
   dashboardState.shapeProfileSelectedType = null;
+  dashboardState.connGrowthCustomH = null;
   // Clear per-piece tinted silhouette caches and edge config
   for (const p of listPieces()) {
     if (p._tintedSilMap) p._tintedSilMap = null;
@@ -3917,12 +3994,23 @@ function drawShapeProfilePopup(panelX, panelY, panelW, panelH, entry, data, rows
 
 // Selection state: solvedAt value of the selected placement group (null = no selection)
 let offgridSelectedSolvedAt = null;
+// Join time interval of the selected off-grid group for the curve marker
+let _offgridSelectedJoinTime    = null;  // earliest piece joins group
+let _offgridSelectedJoinTimeEnd = null;  // latest piece joins group (null = single point)
+// Selection state for the first-connection panel (null = none)
+let _firstConnSelectedIdx = null;
 
 export function clearOffGridSelection() {
   offgridSelectedSolvedAt = null;
+  _offgridSelectedJoinTime    = null;
+  _offgridSelectedJoinTimeEnd = null;
 }
 
-export function drawOffGridAssemblies(width, height, pieces) {
+export function clearFirstConnSelection() {
+  _firstConnSelectedIdx = null;
+}
+
+export function drawOffGridAssemblies(width, height, pieces, bgColor = 245) {
   const allPieces = listPieces();
   if (!allPieces.length || !globalSnapshots.length) {
     push();
@@ -4036,7 +4124,7 @@ export function drawOffGridAssemblies(width, height, pieces) {
   const timeRange = maxTime > minTime ? maxTime - minTime : 1;
 
   // --- Draw background ---
-  background(245);
+  background(bgColor);
 
   // Draw grid area outline
   push();
@@ -4045,6 +4133,12 @@ export function drawOffGridAssemblies(width, height, pieces) {
   strokeWeight(2);
   rect(originX + 0.5, originY + 0.5, W, H, 6);
   pop();
+
+  // Draw background image overlay if enabled
+  if (dashboardState.overlayEnabled && window.__currentPuzzleImage) {
+    const overlayImg = dashboardState.overlayGrayscale ? getGrayscalePuzzleImage() : window.__currentPuzzleImage;
+    if (overlayImg) image(overlayImg, originX, originY, W, H);
+  }
 
   // --- Draw title ---
   push();
@@ -4076,6 +4170,7 @@ export function drawOffGridAssemblies(width, height, pieces) {
   const colorFunc = getDashboardColorFunction(dashboardState.colormap);
   const pieceBounds = [];
 
+  drawingContext.globalAlpha = dashboardState.colorOpacity;
   for (const pp of allPieces) {
     if (!pp || typeof pp.index === 'undefined' || !pp.img) continue;
 
@@ -4113,6 +4208,7 @@ export function drawOffGridAssemblies(width, height, pieces) {
     pieceBounds.push({ index: pp.index, solvedAt: pp.solvedAt, x: px, y: py, w: pw, h: ph, isAssembly: isAssemblyPiece });
   }
 
+  drawingContext.globalAlpha = 1;
   // Expose piece bounds for click handler
   drawOffGridAssemblies._pieceBounds = pieceBounds;
 
@@ -4171,12 +4267,666 @@ export function handleOffGridClick(mx, my) {
       if (typeof b.solvedAt !== 'number' || !b.isAssembly) continue;
       // Toggle: if clicking on same group → deselect; otherwise → select new group
       if (offgridSelectedSolvedAt === b.solvedAt) {
-        offgridSelectedSolvedAt = null;
+        offgridSelectedSolvedAt     = null;
+        _offgridSelectedJoinTime    = null;
+        _offgridSelectedJoinTimeEnd = null;
       } else {
         offgridSelectedSolvedAt = b.solvedAt;
+        // Find the earliest and latest off-grid join times for pieces in this group
+        const joinMap = _offgridCache.joinTime;
+        if (joinMap) {
+          let minJT = Infinity, maxJT = -Infinity;
+          for (const pb of bounds) {
+            if (pb.solvedAt === b.solvedAt && pb.isAssembly) {
+              const jt = joinMap.get(pb.index);
+              if (jt !== undefined) {
+                if (jt < minJT) minJT = jt;
+                if (jt > maxJT) maxJT = jt;
+              }
+            }
+          }
+          _offgridSelectedJoinTime    = isFinite(minJT) ? minJT : null;
+          _offgridSelectedJoinTimeEnd = (isFinite(maxJT) && maxJT > minJT) ? maxJT : null;
+        } else {
+          _offgridSelectedJoinTime    = null;
+          _offgridSelectedJoinTimeEnd = null;
+        }
       }
       return true;
     }
   }
+  return false;
+}
+
+export function drawConnDashboard(width, height, pieces) {
+  const padding = 20;
+  const gapBetween = 15;
+  const panelWidth = (width - padding * 2 - gapBetween) / 2;
+  const leftX = padding;
+  const rightX = leftX + panelWidth + gapBetween;
+
+  const rows = (puzzleGrid && puzzleGrid.rows) || 0;
+  const cols = (puzzleGrid && puzzleGrid.cols) || 0;
+  const lookup = new Map();
+  for (const p of pieces || []) lookup.set(`${p.r},${p.c}`, p);
+
+  // Left panel — off-grid assemblies, clipped and translated to panel area
+  drawingContext.save();
+  drawingContext.beginPath();
+  drawingContext.rect(leftX, 0, panelWidth, height);
+  drawingContext.clip();
+  push();
+  translate(leftX, 0);
+  drawOffGridAssemblies(panelWidth, height, pieces, 255);
+  pop();
+  drawingContext.restore();
+
+  // Right panel — first connection heatmap
+  drawFirstConnectionPanel(rightX, 0, panelWidth, height, rows, cols, lookup, pieces);
+}
+
+function computeFirstConnTimes() {
+  const currentSnapCount = globalSnapshots.length;
+  if (currentSnapCount < _firstConnCache.lastSnapCount || !_firstConnCache.firstConnTime) {
+    _firstConnCache.firstConnTime = new Map();
+    _firstConnCache.firstConnPartners = new Map();
+    _firstConnCache.minTime = Infinity;
+    _firstConnCache.maxTime = -Infinity;
+    _firstConnCache.lastSnapCount = 0;
+  }
+  if (!_firstConnCache.firstConnPartners) _firstConnCache.firstConnPartners = new Map();
+  if (currentSnapCount > _firstConnCache.lastSnapCount) {
+    // Build piece index → {r, c} for adjacency filtering
+    const rcByIndex = new Map();
+    for (const p of listPieces()) {
+      if (p && typeof p.index !== 'undefined') rcByIndex.set(p.index, { r: p.r, c: p.c });
+    }
+
+    for (let si = _firstConnCache.lastSnapCount; si < currentSnapCount; si++) {
+      const snap = globalSnapshots[si];
+      const groupMembers = new Map();
+      for (const [idxStr, posData] of Object.entries(snap.positions)) {
+        const gid = posData.groupId;
+        if (gid == null) continue;
+        if (!groupMembers.has(gid)) groupMembers.set(gid, []);
+        groupMembers.get(gid).push(parseInt(idxStr, 10));
+      }
+      for (const [, members] of groupMembers) {
+        if (members.length < 2) continue;
+        for (const idx of members) {
+          if (!_firstConnCache.firstConnTime.has(idx)) {
+            _firstConnCache.firstConnTime.set(idx, snap.t);
+            if (snap.t < _firstConnCache.minTime) _firstConnCache.minTime = snap.t;
+            if (snap.t > _firstConnCache.maxTime) _firstConnCache.maxTime = snap.t;
+            // Only keep true grid-adjacent pieces as partners
+            const ownRC = rcByIndex.get(idx);
+            let partners;
+            if (ownRC) {
+              const adjacent = new Set(members.filter(m => {
+                if (m === idx) return false;
+                const mRC = rcByIndex.get(m);
+                return mRC && Math.abs(ownRC.r - mRC.r) + Math.abs(ownRC.c - mRC.c) === 1;
+              }));
+              partners = adjacent.size > 0 ? adjacent : new Set(members.filter(m => m !== idx));
+            } else {
+              partners = new Set(members.filter(m => m !== idx));
+            }
+            _firstConnCache.firstConnPartners.set(idx, partners);
+          }
+        }
+      }
+    }
+    _firstConnCache.lastSnapCount = currentSnapCount;
+  }
+}
+
+// Incrementally computes { t, nGroups, maxSize } for each snapshot.
+// nGroups = total number of separate clusters (singletons + connected groups).
+// maxSize = size of the largest connected group (minimum 1).
+function _computeGroupTimeline(nPieces) {
+  if (nPieces !== _groupTimelineNPieces) {
+    _groupTimelineCache = [];
+    _groupTimelineLastSnapCount = -1;
+    _groupTimelineNPieces = nPieces;
+  }
+
+  for (let si = _groupTimelineLastSnapCount + 1; si < globalSnapshots.length; si++) {
+    const snap = globalSnapshots[si];
+    const gidCount = new Map();
+    let nullCount = 0;
+    for (const [, pos] of Object.entries(snap.positions)) {
+      const gid = pos.groupId;
+      if (gid === null) { nullCount++; continue; }
+      gidCount.set(gid, (gidCount.get(gid) || 0) + 1);
+    }
+    const nGroups = nullCount + gidCount.size;
+    let maxSize = 1;
+    for (const [, size] of gidCount) {
+      if (size > maxSize) maxSize = size;
+    }
+    _groupTimelineCache.push({ t: snap.t, nGroups, maxSize });
+  }
+
+  _groupTimelineLastSnapCount = globalSnapshots.length - 1;
+  return _groupTimelineCache;
+}
+
+function drawFirstConnectionPanel(x, y, w, h, rows, cols, lookup, pieces) {
+  push();
+
+  // Title and subtitle
+  fill(50);
+  textSize(16);
+  textAlign(CENTER, TOP);
+  text(t("connDashboardConnTitle") || "Els\u0151 kapcsol\u00f3d\u00e1s", x + w / 2, y + 12);
+  fill(100);
+  textSize(11);
+  textAlign(CENTER, TOP);
+  text(t("connDashboardConnSubtitle") || "Mikor \u00e1llt \u00f6ssze el\u0151sz\u00f6r b\u00e1rmely szomsz\u00e9dj\u00e1val", x + w / 2, y + 34);
+
+  if (!rows || !cols) {
+    fill(120); textAlign(CENTER, CENTER); textSize(13);
+    text(t("connDashboardConnNoData") || "M\u00e9g nincs kapcsol\u00f3d\u00e1si adat.", x + w / 2, y + h / 2);
+    pop();
+    return;
+  }
+
+  // Height allocation
+  const topReserve    = 50;
+  const legendH       = 10;
+  const legendReserve = legendH + 34; // bar + labels + no-data text clearance
+  const defaultStripH = Math.max(100, Math.min(220, h * 0.35));
+  const stripH = dashboardState.connGrowthCustomH
+    ? Math.max(80, Math.min(Math.floor(h * 0.65), dashboardState.connGrowthCustomH))
+    : defaultStripH;
+  const stripGap    = 8;
+  const matrixAreaH = h - topReserve - legendReserve - stripH - stripGap;
+
+  const cellSize = Math.min(w / cols, matrixAreaH / rows);
+  const matrixW  = cellSize * cols;
+  const matrixH  = cellSize * rows;
+  const offsetX  = x + (w - matrixW) / 2;
+  const offsetY  = y + topReserve + (matrixAreaH - matrixH) / 2;
+
+  computeFirstConnTimes();
+  const fcTime   = _firstConnCache.firstConnTime;
+  const minTime  = _firstConnCache.minTime;
+  const maxTime  = _firstConnCache.maxTime;
+  const timeRange = maxTime > minTime ? maxTime - minTime : 1;
+  const hasData  = fcTime && fcTime.size > 0;
+
+  const totalOrigW = puzzleMeta.maxX - puzzleMeta.minX;
+  const totalOrigH = puzzleMeta.maxY - puzzleMeta.minY;
+  const pieceScale = (totalOrigW > 0 && totalOrigH > 0)
+    ? Math.min(matrixW / totalOrigW, matrixH / totalOrigH) : 0;
+  const centX = offsetX + (matrixW - totalOrigW * pieceScale) / 2;
+  const centY = offsetY + (matrixH - totalOrigH * pieceScale) / 2;
+
+  const colorFunc     = getDashboardColorFunction(dashboardState.colormap);
+  const pieceBoundsMap = new Map();
+
+  // Build event-rank lookup (sorted unique timestamps → rank 1..N)
+  const sortedTimes = [...new Set([...fcTime.values()])].sort((a, b) => a - b);
+  const eventRank   = new Map();
+  sortedTimes.forEach((ts, i) => eventRank.set(ts, i + 1));
+
+  // Draw background image overlay if enabled
+  if (dashboardState.overlayEnabled && window.__currentPuzzleImage) {
+    const overlayImg = dashboardState.overlayGrayscale ? getGrayscalePuzzleImage() : window.__currentPuzzleImage;
+    if (overlayImg) image(overlayImg, offsetX, offsetY, matrixW, matrixH);
+  }
+
+  // === DRAW HEATMAP CELLS ===
+  const _pieceDrawCache = new Map();
+  drawingContext.globalAlpha = dashboardState.colorOpacity;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const p     = lookup.get(`${r},${c}`);
+      const connT = p ? fcTime.get(p.index) : undefined;
+
+      let cr = 230, cg = 230, cb = 230;
+      if (connT !== undefined) {
+        if (_growthCurveTimeFilter !== null && connT > _growthCurveTimeFilter) {
+          cr = 200; cg = 200; cb = 200;
+        } else {
+          const tn = (connT - minTime) / timeRange;
+          [cr, cg, cb] = colorFunc(tn);
+        }
+      }
+
+      const tintedSil = p ? getTintedSilhouette(p, cr, cg, cb) : null;
+      let cellX, cellY, cellW, cellH;
+      if (tintedSil && pieceScale > 0) {
+        cellX = centX + (p.meta.x - puzzleMeta.minX) * pieceScale;
+        cellY = centY + (p.meta.y - puzzleMeta.minY) * pieceScale;
+        cellW = p.w * pieceScale;
+        cellH = p.h * pieceScale;
+        image(tintedSil, cellX, cellY, cellW, cellH);
+      } else {
+        cellX = offsetX + c * cellSize;
+        cellY = offsetY + r * cellSize;
+        cellW = cellSize;
+        cellH = cellSize;
+        fill(cr, cg, cb); stroke(210); strokeWeight(1);
+        rect(cellX, cellY, cellW, cellH);
+      }
+      if (p) {
+        pieceBoundsMap.set(p.index, {
+          x: cellX, y: cellY, w: cellW, h: cellH,
+          cx: cellX + cellW / 2, cy: cellY + cellH / 2
+        });
+        _pieceDrawCache.set(p.index, (tintedSil && pieceScale > 0)
+          ? { sil: tintedSil, x: cellX, y: cellY, w: cellW, h: cellH }
+          : { sil: null, x: cellX, y: cellY, w: cellW, h: cellH, cr, cg, cb });
+      }
+    }
+  }
+  drawingContext.globalAlpha = 1;
+  drawFirstConnectionPanel._pieceBoundsMap = pieceBoundsMap;
+
+  // === SELECTION: modern spotlight effect ===
+  if (_firstConnSelectedIdx !== null) {
+    const selB = pieceBoundsMap.get(_firstConnSelectedIdx);
+    const partners = (_firstConnCache.firstConnPartners &&
+      _firstConnCache.firstConnPartners.get(_firstConnSelectedIdx)) || new Set();
+
+    if (selB) {
+      // 1. Fog: dim all non-relevant pieces
+      push();
+      noStroke();
+      fill(255, 255, 255, 155);
+      for (const [idx, b] of pieceBoundsMap) {
+        if (idx === _firstConnSelectedIdx || partners.has(idx)) continue;
+        rect(b.x, b.y, b.w, b.h);
+      }
+      pop();
+
+      // 1b. Redraw selected + partner pieces at full opacity (bypass colorOpacity)
+      push();
+      drawingContext.globalAlpha = 1;
+      const _redrawSet = new Set([_firstConnSelectedIdx, ...partners]);
+      for (const idx of _redrawSet) {
+        const d = _pieceDrawCache.get(idx);
+        if (!d) continue;
+        if (d.sil) {
+          image(d.sil, d.x, d.y, d.w, d.h);
+        } else {
+          fill(d.cr, d.cg, d.cb); stroke(210); strokeWeight(1);
+          rect(d.x, d.y, d.w, d.h);
+        }
+      }
+      drawingContext.globalAlpha = 1;
+      pop();
+
+      // 2. Connector lines with glow + terminal dots at each end
+      push();
+      drawingContext.shadowBlur = 5;
+      drawingContext.shadowColor = 'rgba(50, 130, 240, 0.5)';
+      stroke(50, 130, 240, 190); strokeWeight(1.5); noFill();
+      for (const pi of partners) {
+        const pb = pieceBoundsMap.get(pi);
+        if (pb) line(selB.cx, selB.cy, pb.cx, pb.cy);
+      }
+      drawingContext.shadowBlur = 0;
+      noStroke(); fill(50, 130, 240, 210);
+      if (partners.size > 0) circle(selB.cx, selB.cy, 5);
+      for (const pi of partners) {
+        const pb = pieceBoundsMap.get(pi);
+        if (pb) circle(pb.cx, pb.cy, 5);
+      }
+      pop();
+
+      // 3. Partner pieces: glowing blue border
+      push();
+      noFill();
+      drawingContext.shadowBlur = 8;
+      drawingContext.shadowColor = 'rgba(50, 130, 240, 0.7)';
+      stroke(50, 130, 240); strokeWeight(2);
+      for (const pi of partners) {
+        const pb = pieceBoundsMap.get(pi);
+        if (!pb) continue;
+        rect(pb.x + 1, pb.y + 1, pb.w - 2, pb.h - 2, 2);
+      }
+      drawingContext.shadowBlur = 0;
+      pop();
+
+      // 4. Selected piece: white border with strong blue glow + outer ring
+      push();
+      noFill();
+      drawingContext.shadowBlur = 16;
+      drawingContext.shadowColor = 'rgba(50, 130, 240, 1.0)';
+      stroke(255); strokeWeight(3);
+      rect(selB.x + 1, selB.y + 1, selB.w - 2, selB.h - 2, 3);
+      drawingContext.shadowBlur = 8;
+      drawingContext.shadowColor = 'rgba(50, 130, 240, 0.8)';
+      stroke(50, 130, 240); strokeWeight(2);
+      circle(selB.cx, selB.cy, Math.max(selB.w, selB.h) * 1.35);
+      drawingContext.shadowBlur = 0;
+      pop();
+    }
+  }
+
+  // === RANK BADGES (on top of everything, only selected + partners) ===
+  push();
+  if (_firstConnSelectedIdx !== null) {
+    const _badgePartners = (_firstConnCache.firstConnPartners &&
+      _firstConnCache.firstConnPartners.get(_firstConnSelectedIdx)) || new Set();
+    const _badgeSet = new Set([_firstConnSelectedIdx, ..._badgePartners]);
+    for (const [idx, b] of pieceBoundsMap) {
+      if (!_badgeSet.has(idx)) continue;
+      const connT = fcTime.get(idx);
+      if (connT === undefined) continue;
+      const rank     = eventRank.get(connT);
+      const isFuture = _growthCurveTimeFilter !== null && connT > _growthCurveTimeFilter;
+      const badgeR   = Math.max(10, Math.min(15, Math.min(b.w, b.h) * 0.32));
+      if (isFuture) {
+        fill(220); stroke(170); strokeWeight(1);
+      } else {
+        fill(255); stroke(50, 130, 240); strokeWeight(1.5);
+      }
+      circle(b.cx, b.cy, badgeR * 2);
+      noStroke();
+      fill(isFuture ? 150 : 30);
+      textAlign(CENTER, CENTER);
+      textStyle(BOLD);
+      textSize(Math.max(8, Math.floor(badgeR * 1.05)));
+      text(rank, b.cx, b.cy);
+      textStyle(NORMAL);
+    }
+  }
+  pop();
+
+  // === LEGEND BAR ===
+  const legendW = Math.min(matrixW * 0.7, 180);
+  const lx = x + (w - legendW) / 2;
+  const ly = offsetY + matrixH + 8;
+  noStroke();
+  for (let i = 0; i < 40; i++) {
+    const tn = i / 39;
+    const [lcr, lcg, lcb] = colorFunc(tn);
+    fill(lcr, lcg, lcb);
+    rect(lx + (legendW * i) / 40, ly, legendW / 40 + 0.5, legendH);
+  }
+  stroke(200); noFill(); rect(lx, ly, legendW, legendH);
+  noStroke(); fill(80); textSize(10);
+  if (hasData) {
+    textAlign(RIGHT, CENTER);
+    text(t("heatmapLegendMin") || "Earliest", lx - 5, ly + legendH / 2);
+    textAlign(LEFT, CENTER);
+    text(t("heatmapLegendMax") || "Latest", lx + legendW + 5, ly + legendH / 2);
+  } else {
+    textAlign(CENTER, TOP);
+    text(t("connDashboardConnNoData") || "M\u00e9g nincs kapcsol\u00f3d\u00e1si adat.", lx + legendW / 2, ly + legendH + 4);
+  }
+
+  // === RESIZE GRIP (between heatmap and growth curve) ===
+  const dividerY  = y + h - stripH;
+  _connGrowthDividerBounds = { x, y: dividerY, w };
+  const gripCX    = x + w / 2;
+  const hoverGrip = mouseX >= x && mouseX <= x + w &&
+                    mouseY >= dividerY - 6 && mouseY <= dividerY + 6;
+  push();
+  noStroke();
+  fill(hoverGrip ? 218 : 232, hoverGrip ? 230 : 232);
+  rect(gripCX - 28, dividerY - 10, 56, 12, 6);
+  stroke(hoverGrip ? 120 : 170);
+  strokeWeight(hoverGrip ? 2 : 1.5);
+  line(gripCX - 18, dividerY - 8, gripCX + 18, dividerY - 8);
+  line(gripCX - 18, dividerY - 5, gripCX + 18, dividerY - 5);
+  line(gripCX - 18, dividerY - 2, gripCX + 18, dividerY - 2);
+  pop();
+
+  // === GROUP GROWTH DIAGRAM ===
+  _drawGroupGrowthDiagram(x, dividerY, w, stripH, rows * cols, colorFunc);
+
+  pop();
+}
+
+// Dual-curve chart: X = time, Y = piece count (0–N).
+// Blue line  = nGroups (starts high, falls as pieces merge).
+// Orange line = maxGroupSize (starts low, rises as the biggest cluster grows).
+// They cross in an X shape at the puzzle's "inflection point".
+function _drawGroupGrowthDiagram(x, y, w, h, nPieces, colorFunc) {
+  // Header + separator
+  push();
+  fill(80); textSize(12); textAlign(LEFT, BOTTOM);
+  text(t('connDashboardGrowthTitle') || 'Csoport-növekedés', x + 5, y - 2);
+  stroke(220); strokeWeight(1); noFill();
+  line(x + 5, y, x + w - 5, y);
+  pop();
+
+  const timeline = _computeGroupTimeline(nPieces);
+  if (!timeline || timeline.length < 2) return;
+
+  const headerH = 48;
+  const footerH = 28;
+  const padL = 32, padR = 8;
+  const availH = Math.max(10, h - headerH - footerH);
+  const availW = w - padL - padR;
+  const drawX  = x + padL;
+  const drawY  = y + headerH;
+
+  const minT      = timeline[0].t;
+  const maxT      = timeline[timeline.length - 1].t;
+  const timeRange = maxT > minT ? maxT - minT : 1;
+  const xScale = ts => drawX + ((ts - minT) / timeRange) * availW;
+  const yVal   = v  => drawY + (1 - v / nPieces) * availH;
+  _growthCurveBounds = { drawX, drawY, availW, availH, minT, maxT, timeRange };
+
+  // Subsample for rendering performance
+  let pts = timeline;
+  if (pts.length > 400) {
+    const skip = Math.ceil(pts.length / 400);
+    pts = pts.filter((_, i) => i % skip === 0 || i === pts.length - 1);
+  }
+
+  const blueC   = [50, 130, 240];
+  const orangeC = [220, 105, 25];
+
+  // Horizontal grid lines at 25 / 50 / 75 %
+  push(); stroke(225); strokeWeight(0.5); noFill();
+  for (const frac of [0.25, 0.5, 0.75]) {
+    line(drawX, drawY + (1 - frac) * availH, drawX + availW, drawY + (1 - frac) * availH);
+  }
+  pop();
+
+  // Orange fill: below maxSize line (growing area)
+  push(); noStroke(); fill(...orangeC, 30);
+  beginShape();
+  vertex(xScale(pts[0].t), drawY + availH);
+  for (const pt of pts) vertex(xScale(pt.t), yVal(pt.maxSize));
+  vertex(xScale(pts[pts.length - 1].t), drawY + availH);
+  endShape(CLOSE);
+  pop();
+
+  // Blue fill: above nGroups line (shrinking area)
+  push(); noStroke(); fill(...blueC, 25);
+  beginShape();
+  vertex(xScale(pts[0].t), drawY);
+  for (const pt of pts) vertex(xScale(pt.t), yVal(pt.nGroups));
+  vertex(xScale(pts[pts.length - 1].t), drawY);
+  endShape(CLOSE);
+  pop();
+
+  // nGroups line (blue)
+  push(); noFill(); stroke(...blueC); strokeWeight(2);
+  beginShape();
+  for (const pt of pts) vertex(xScale(pt.t), yVal(pt.nGroups));
+  endShape();
+  pop();
+
+  // maxSize line (orange)
+  push(); noFill(); stroke(...orangeC); strokeWeight(2);
+  beginShape();
+  for (const pt of pts) vertex(xScale(pt.t), yVal(pt.maxSize));
+  endShape();
+  pop();
+
+  // === SELECTED PIECE MARKER ===
+  if (_firstConnSelectedIdx !== null && _firstConnCache && _firstConnCache.firstConnTime) {
+    const connT = _firstConnCache.firstConnTime.get(_firstConnSelectedIdx);
+    if (connT != null && connT >= minT && connT <= maxT) {
+      const mx = xScale(connT);
+      // Vertical dashed line
+      push();
+      stroke(60, 60, 60); strokeWeight(1.5);
+      drawingContext.setLineDash([4, 3]);
+      line(mx, drawY, mx, drawY + availH);
+      drawingContext.setLineDash([]);
+      pop();
+      // Find closest sampled point for dot y-values
+      const closest = pts.reduce((best, pt) =>
+        Math.abs(pt.t - connT) < Math.abs(best.t - connT) ? pt : best);
+      // Blue dot on nGroups curve
+      push(); fill(...blueC); stroke(255); strokeWeight(1.5);
+      circle(mx, yVal(closest.nGroups), 7);
+      pop();
+      // Orange dot on maxSize curve
+      push(); fill(...orangeC); stroke(255); strokeWeight(1.5);
+      circle(mx, yVal(closest.maxSize), 7);
+      pop();
+      // Time label above the line (row 2 — middle, 15px above off-grid row 3)
+      push(); fill(60); noStroke(); textSize(10); textAlign(CENTER, BOTTOM);
+      const sec = Math.round((connT - minT) / 1000);
+      text(`${sec}s`, mx, drawY - 18);
+      pop();
+    }
+  }
+
+  // === TIME FILTER SCRUBBER ===
+  if (_growthCurveTimeFilter !== null && _growthCurveTimeFilter >= minT && _growthCurveTimeFilter <= maxT) {
+    const fx = xScale(_growthCurveTimeFilter);
+    // Shaded "past" region
+    push(); noStroke(); fill(120, 80, 200, 22);
+    rect(drawX, drawY, fx - drawX, availH);
+    pop();
+    // Vertical line
+    push();
+    stroke(120, 80, 200); strokeWeight(1.5);
+    drawingContext.setLineDash([3, 3]);
+    line(fx, drawY, fx, drawY + availH);
+    drawingContext.setLineDash([]);
+    pop();
+    // Triangle scrubber handle at top of chart
+    push(); fill(120, 80, 200); noStroke();
+    triangle(fx - 5, drawY - 5, fx + 5, drawY - 5, fx, drawY + 3);
+    pop();
+    // Time label above handle (row 1 — topmost, 15px above selected-piece row 2)
+    const fsec = Math.round((_growthCurveTimeFilter - minT) / 1000);
+    push(); fill(100, 60, 180); noStroke(); textSize(10); textAlign(CENTER, BOTTOM);
+    text(`${fsec}s`, fx, drawY - 33);
+    pop();
+  }
+
+  // === OFFGRID GROUP MARKER ===
+  if (_offgridSelectedJoinTime !== null && _offgridSelectedJoinTime >= minT && _offgridSelectedJoinTime <= maxT) {
+    const ox1 = xScale(_offgridSelectedJoinTime);
+    const hasInterval = _offgridSelectedJoinTimeEnd !== null && _offgridSelectedJoinTimeEnd > _offgridSelectedJoinTime;
+    const ox2 = hasInterval ? xScale(Math.min(_offgridSelectedJoinTimeEnd, maxT)) : ox1;
+
+    if (hasInterval) {
+      // Wide semi-transparent band spanning the full growth interval
+      push(); noStroke(); fill(220, 100, 30, 35);
+      rect(ox1, drawY, ox2 - ox1, availH);
+      pop();
+      // Left border (first piece joins) and right border (last piece joins)
+      push(); stroke(220, 100, 30); strokeWeight(1.5); noFill();
+      line(ox1, drawY, ox1, drawY + availH);
+      line(ox2, drawY, ox2, drawY + availH);
+      pop();
+      // Top bracket connecting the two borders
+      push(); stroke(220, 100, 30); strokeWeight(2);
+      line(ox1, drawY + 1, ox2, drawY + 1);
+      pop();
+      // Small tick handles at bracket ends
+      push(); stroke(220, 100, 30); strokeWeight(2);
+      line(ox1, drawY + 1, ox1, drawY + 7);
+      line(ox2, drawY + 1, ox2, drawY + 7);
+      pop();
+      // Interval label centered above the bracket
+      const s1 = Math.round((_offgridSelectedJoinTime - minT) / 1000);
+      const s2 = Math.round((_offgridSelectedJoinTimeEnd - minT) / 1000);
+      push(); fill(180, 70, 20); noStroke(); textSize(10); textAlign(CENTER, BOTTOM);
+      text(`${s1}s – ${s2}s`, (ox1 + ox2) / 2, drawY - 3);
+      pop();
+    } else {
+      // Single point: narrow band + line + diamond handle
+      push(); noStroke(); fill(220, 100, 30, 50);
+      rect(ox1 - 4, drawY, 8, availH);
+      pop();
+      push(); stroke(220, 100, 30); strokeWeight(2); noFill();
+      line(ox1, drawY, ox1, drawY + availH);
+      pop();
+      push(); fill(220, 100, 30); noStroke();
+      quad(ox1, drawY - 7, ox1 + 5, drawY - 1, ox1, drawY + 5, ox1 - 5, drawY - 1);
+      pop();
+      const osec = Math.round((_offgridSelectedJoinTime - minT) / 1000);
+      push(); fill(180, 70, 20); noStroke(); textSize(10); textAlign(CENTER, BOTTOM);
+      text(`${osec}s`, ox1, drawY - 10);
+      pop();
+    }
+  }
+
+  // Chart border
+  push(); stroke(200); strokeWeight(1); noFill();
+  rect(drawX, drawY, availW, availH);
+  pop();
+
+  // Y axis labels (left side)
+  push(); fill(155); noStroke(); textSize(9); textAlign(RIGHT, CENTER);
+  for (const frac of [0, 0.25, 0.5, 0.75, 1]) {
+    text(Math.round(frac * nPieces), drawX - 5, drawY + (1 - frac) * availH);
+  }
+  pop();
+
+  // Time axis labels (bottom)
+  push(); fill(140); noStroke(); textSize(10);
+  const nLabels = Math.min(5, Math.max(2, Math.floor(availW / 62)));
+  for (let i = 0; i <= nLabels; i++) {
+    const tx  = drawX + (i / nLabels) * availW;
+    const sec = Math.round((i / nLabels) * timeRange / 1000);
+    textAlign(CENTER, TOP);
+    text(`${sec}s`, tx, drawY + availH + 4);
+  }
+  pop();
+
+  // Legend: line swatches
+  const legY = drawY + availH + 18;
+  push(); noFill(); textSize(10);
+  stroke(...blueC); strokeWeight(2);
+  line(drawX, legY, drawX + 17, legY);
+  noStroke(); fill(90); textAlign(LEFT, CENTER);
+  text(t('growthGroups') || 'csoportok száma ↓', drawX + 21, legY);
+  const legX2 = drawX + availW * 0.5;
+  stroke(...orangeC); strokeWeight(2); noFill();
+  line(legX2, legY, legX2 + 17, legY);
+  noStroke(); fill(90);
+  text(t('growthMaxSize') || 'legnagyobb csoport ↑', legX2 + 21, legY);
+  pop();
+}
+
+export function handleFirstConnClick(mx, my) {
+  // Curve scrubber: click inside the dual-curve chart area sets the time filter
+  if (_growthCurveBounds) {
+    const { drawX, drawY, availW, availH, minT, maxT, timeRange } = _growthCurveBounds;
+    if (mx >= drawX && mx <= drawX + availW && my >= drawY && my <= drawY + availH) {
+      const clickedT = minT + ((mx - drawX) / availW) * timeRange;
+      _growthCurveTimeFilter = (_growthCurveTimeFilter !== null &&
+        Math.abs(_growthCurveTimeFilter - clickedT) < timeRange * 0.015)
+        ? null : clickedT;
+      return true;
+    }
+  }
+  // Heatmap piece selection
+  const bmap = drawFirstConnectionPanel._pieceBoundsMap;
+  if (!bmap) return false;
+  for (const [idx, b] of bmap) {
+    if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+      _firstConnSelectedIdx = (_firstConnSelectedIdx === idx) ? null : idx;
+      return true;
+    }
+  }
+  // Click in panel but outside both areas: clear time filter
+  _growthCurveTimeFilter = null;
   return false;
 }

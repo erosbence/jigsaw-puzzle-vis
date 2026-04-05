@@ -1,5 +1,5 @@
 ﻿import { styleState, resetScene, setPuzzleMeta, setPuzzleGrid, registerPiece, newGroup, listGroups, listPieces, puzzleGrid, timerState, puzzleMeta, bounds, addGlobalSnapshot, globalSnapshots, connectionsState, resetGlobalSnapshots, gameSettings, setHoverPiece, viewSettings, recordPieceInteraction, resetPieceInteractionMatrix, completionState, setPuzzleComplete, setShowingComplete, setImageHintEnabled, clearPathsSelection, pathsState } from "../canvas/state.js";
-import { drawPiece, dashboardState, setDashboardOverlay, setDashboardOverlayGrayscale, setDashboardColormap, setDashboardOpacity, setDashboardSelectedPiece, clearOffGridSelection, resetDashboardCaches } from "../canvas/draw.js";
+import { drawPiece, dashboardState, setDashboardOverlay, setDashboardOverlayGrayscale, setDashboardColormap, setDashboardOpacity, setDashboardSelectedPiece, clearOffGridSelection, clearFirstConnSelection, resetDashboardCaches } from "../canvas/draw.js";
 import { PuzzlePiece } from "../canvas/piece.js";
 import { Group } from "../canvas/group.js";
 import { clampPiece, clampPieceOutsideGrid, averagePieceDiagonal, mergeWithSolvedNeighbors, targetTopLeft } from "../canvas/interaction.js";
@@ -800,6 +800,7 @@ function updateAnalyticsDesc() {
   else if (styleState.analyticsView === "adjacency") analyticsDesc.textContent = t("analyticsDescAdjacency");
   else if (styleState.analyticsView === "dashboard") analyticsDesc.textContent = t("analyticsDescDashboard");
   else if (styleState.analyticsView === "offgrid") analyticsDesc.textContent = t("analyticsDescOffgrid");
+  else if (styleState.analyticsView === "connDashboard") analyticsDesc.textContent = t("analyticsDescConnDashboard");
   else analyticsDesc.textContent = t("analyticsDescNone");
 }
 
@@ -845,7 +846,7 @@ function updateDashboardUI() {
   const overlayGrayscaleRow = document.getElementById('dashboardOverlayGrayscaleRow');
   const colormapRow = document.getElementById('dashboardColormapRow');
   const opacityRow = document.getElementById('dashboardOpacityRow');
-  const show = styleState.analyticsView === 'dashboard';
+  const show = styleState.analyticsView === 'dashboard' || styleState.analyticsView === 'connDashboard';
   if (dashboardControls) dashboardControls.style.display = show ? 'block' : 'none';
   if (overlayRow) overlayRow.style.display = show ? '' : 'none';
   if (overlayGrayscaleRow && !show) overlayGrayscaleRow.style.display = 'none';
@@ -1630,7 +1631,8 @@ export function wireControls() {
       "adjacency": "analyticsDescAdjacency",
       "wrong": "analyticsDescWrong",
       "dashboard": "analyticsDescDashboard",
-      "offgrid": "analyticsDescOffgrid"
+      "offgrid": "analyticsDescOffgrid",
+      "connDashboard": "analyticsDescConnDashboard"
     };
     const key = viewMap[styleState.analyticsView] || "analyticsDescNone";
     analyticsDesc.textContent = t(key);
@@ -1678,7 +1680,7 @@ export function wireControls() {
     const overlayGrayscaleRow = document.getElementById('dashboardOverlayGrayscaleRow');
     const colormapRow = document.getElementById('dashboardColormapRow');
     const opacityRow = document.getElementById('dashboardOpacityRow');
-    const show = styleState.analyticsView === 'dashboard';
+    const show = styleState.analyticsView === 'dashboard' || styleState.analyticsView === 'connDashboard';
     if (dashboardControls) dashboardControls.style.display = show ? 'block' : 'none';
     if (overlayRow) overlayRow.style.display = show ? '' : 'none';
     if (overlayGrayscaleRow && !show) overlayGrayscaleRow.style.display = 'none';
@@ -1714,8 +1716,12 @@ export function wireControls() {
         clearPathsSelection();
       }
       // Clear off-grid selection when leaving offgrid view
-      if (styleState.analyticsView !== "offgrid") {
+      if (styleState.analyticsView !== "offgrid" && styleState.analyticsView !== "connDashboard") {
         clearOffGridSelection();
+      }
+      // Clear first-connection selection when leaving connDashboard
+      if (styleState.analyticsView !== "connDashboard") {
+        clearFirstConnSelection();
       }
       redraw();
     });
