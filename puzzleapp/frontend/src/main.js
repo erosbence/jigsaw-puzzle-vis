@@ -1,5 +1,5 @@
 import { wireControls } from "./ui/controls.js";
-import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections, drawMovementPaths, handlePathsClick, drawAdjacencyMatrix, drawDashboard, handleDashboardClick, setDashboardSelectedPiece, drawOffGridAssemblies, handleOffGridClick, drawConnDashboard, handleFirstConnClick, clearFirstConnSelection, computeAdjacencyHoverKey, shapeProfileResizeHitTest, startShapeProfileResize, updateShapeProfileResize, stopShapeProfileResize, isShapeProfileDragging, handleShapeProfilePopupWheel, connGrowthResizeHitTest, startConnGrowthResize, updateConnGrowthResize, stopConnGrowthResize, isConnGrowthDragging } from "./canvas/draw.js";
+import { drawBackground, drawPiece, drawHeatmap, drawGrabPoints, drawConnections, drawMovementPaths, handlePathsClick, drawAdjacencyMatrix, drawDashboard, handleDashboardClick, setDashboardSelectedPiece, drawOffGridAssemblies, handleOffGridClick, drawConnDashboard, handleFirstConnClick, clearFirstConnSelection, computeAdjacencyHoverKey, computeSankeyHoverKey, shapeProfileResizeHitTest, startShapeProfileResize, updateShapeProfileResize, stopShapeProfileResize, isShapeProfileDragging, handleShapeProfilePopupWheel, connGrowthResizeHitTest, startConnGrowthResize, updateConnGrowthResize, stopConnGrowthResize, isConnGrowthDragging } from "./canvas/draw.js";
 import { styleState, setCanvasSize, puzzleGrid, timerState, listPieces, setHoverPiece, hoverPiece, gameSettings, viewSettings, puzzleMeta, rgbButtonPositions, setRGBMapProjection, rgbMapProjection, matrixGroupingButtonPos, toggleMatrixGrouping, completionState } from "./canvas/state.js";
 import { clampPiece, groupAlphaHit, targetTopLeft, shufflePieces } from "./canvas/interaction.js";
 import { Group } from "./canvas/group.js";
@@ -385,6 +385,7 @@ const MOUSE_MOVE_THROTTLE = 100; // ms - increased for better 6x6 performance
 let _lastAdjHoverKey = null; // diff-based redraw for adjacency matrix view
 let _lastGripHover = false;  // diff-based redraw for shape profile resize grip
 let _lastConnGrowthGripHover = false; // diff-based redraw for connDashboard resize grip
+let _lastSankeyHoverKey = 'o'; // diff-based redraw for Sankey hover tooltip
 
 window.mouseMoved = () => {
   const now = Date.now();
@@ -418,10 +419,11 @@ window.mouseMoved = () => {
   } else if (styleState.analyticsView === "connDashboard") {
     const onGrip = connGrowthResizeHitTest(mouseX, mouseY);
     cursor(onGrip ? 'ns-resize' : ARROW);
-    if (onGrip !== _lastConnGrowthGripHover) {
-      _lastConnGrowthGripHover = onGrip;
-      redraw();
-    }
+    const sankeyKey = computeSankeyHoverKey(mouseX, mouseY);
+    const shouldRedraw = (onGrip !== _lastConnGrowthGripHover) || (sankeyKey !== _lastSankeyHoverKey);
+    _lastConnGrowthGripHover = onGrip;
+    _lastSankeyHoverKey = sankeyKey;
+    if (shouldRedraw) redraw();
   }
   // paths view: no hover-dependent rendering → no redraw needed
 };

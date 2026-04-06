@@ -2417,6 +2417,26 @@ const _firstConnCache = {
   lastSnapCount: 0,
 };
 
+// Sankey merge-tree cache (group history diagram)
+const _sankeyCache = {
+  nodes: null,    // Map<id, SankeyNode>
+  minT: Infinity,
+  maxT: -Infinity,
+  lastSnapCount: 0,
+  nPieces: 0,
+};
+let _sankeyHoveredPieces = null; // Set<pieceIdx> — heatmap connection via hover
+
+// Bright palette for dark-background Sankey (up to 16 distinct leaf groups)
+const _sankeyPalette = [
+  [255, 115, 100], [ 80, 205, 255], [100, 255, 175], [255, 210,  80],
+  [200, 100, 255], [255, 160,  70], [ 70, 235, 225], [255, 120, 195],
+  [155, 255,  85], [105, 140, 255], [255, 230, 115], [195, 115, 255],
+  [255, 180, 100], [ 80, 225, 175], [255,  95, 150], [145, 220, 255],
+];
+let _sankeyNodeColors = new Map();   // nodeId → [r, g, b]
+let _sankeyNodeColorsSnapCount = -1; // invalidated when node count changes
+
 // Group size timeline cache (stacked area chart)
 let _groupTimelineCache = null;
 let _groupTimelineLastSnapCount = -1;
@@ -2460,6 +2480,13 @@ export function resetDashboardCaches() {
   _groupTimelineNPieces = 0;
   _growthCurveTimeFilter = null;
   _growthCurveBounds = null;
+  _sankeyCache.nodes = null;
+  _sankeyCache.minT = Infinity;
+  _sankeyCache.maxT = -Infinity;
+  _sankeyCache.lastSnapCount = 0;
+  _sankeyHoveredPieces = null;
+  _sankeyNodeColors = new Map();
+  _sankeyNodeColorsSnapCount = -1;
   _matrixSortCache.result = null;
   _matrixSortCache.pieceIndicesKey = '';
   _adjLayout = null;
@@ -4401,14 +4428,131 @@ function _computeGroupTimeline(nPieces) {
     }
     const nGroups = nullCount + gidCount.size;
     let maxSize = 1;
+    let nRealGroups = 0;
+    let maxSize2 = 0;
     for (const [, size] of gidCount) {
       if (size > maxSize) maxSize = size;
+      if (size >= 2) { nRealGroups++; if (size > maxSize2) maxSize2 = size; }
     }
-    _groupTimelineCache.push({ t: snap.t, nGroups, maxSize });
+    _groupTimelineCache.push({ t: snap.t, nGroups, maxSize, nRealGroups, maxSize2 });
   }
 
   _groupTimelineLastSnapCount = globalSnapshots.length - 1;
   return _groupTimelineCache;
+}
+
+// Builds the Sankey merge tree from globalSnapshots using Union-Find.
+// SankeyNode: { id, birthT, deathT, size, pieces, childIds, parentId, _y0, _y1 }
+function _computeSankeyTree(nPieces) {
+  if (!nPieces || !globalSnapshots.length) return null;
+  const snapCount = globalSnapshots.length;
+  if (_sankeyCache.nodes &&
+      _sankeyCache.lastSnapCount === snapCount &&
+      _sankeyCache.nPieces === nPieces) return _sankeyCache;
+
+  const ufParent = Array.from({length: nPieces}, (_, i) => i);
+  const ufSz     = new Array(nPieces).fill(1);
+  function find(x) {
+    while (ufParent[x] !== x) { ufParent[x] = ufParent[ufParent[x]]; x = ufParent[x]; }
+    return x;
+  }
+  function union(a, b) {
+    const ra = find(a), rb = find(b);
+    if (ra === rb) return ra;
+    if (ufSz[ra] >= ufSz[rb]) { ufParent[rb] = ra; ufSz[ra] += ufSz[rb]; return ra; }
+    else { ufParent[ra] = rb; ufSz[rb] += ufSz[ra]; return rb; }
+  }
+
+  const rootToNodeId = new Map();
+  const nodes = new Map();
+  let nextId = 0;
+
+  for (const snap of globalSnapshots) {
+    const gidToMembers = new Map();
+    for (const [idxStr, pos] of Object.entries(snap.positions)) {
+      if (pos.groupId == null) continue;
+      const idx = parseInt(idxStr, 10);
+      if (idx >= nPieces) continue;
+      if (!gidToMembers.has(pos.groupId)) gidToMembers.set(pos.groupId, []);
+      gidToMembers.get(pos.groupId).push(idx);
+    }
+    for (const members of gidToMembers.values()) {
+      if (members.length < 2) continue;
+      const rootSet = new Set(members.map(m => find(m)));
+      if (rootSet.size < 2) continue;
+      const rootArr = [...rootSet];
+      const inputNodeIds = rootArr.filter(r => rootToNodeId.has(r)).map(r => rootToNodeId.get(r));
+      for (const nid of inputNodeIds) {
+        const n = nodes.get(nid);
+        if (n && n.deathT === null) n.deathT = snap.t;
+      }
+      const allPieces = [...new Set(members)].sort((a, b) => a - b);
+      const newId = nextId++;
+      const newNode = {
+        id: newId, birthT: snap.t, deathT: null,
+        size: allPieces.length, pieces: allPieces,
+        childIds: inputNodeIds, parentId: null, _y0: 0, _y1: 0,
+      };
+      nodes.set(newId, newNode);
+      for (const nid of inputNodeIds) { const n = nodes.get(nid); if (n) n.parentId = newId; }
+      let mainRoot = rootArr[0];
+      for (let i = 1; i < rootArr.length; i++) mainRoot = union(mainRoot, rootArr[i]);
+      for (const r of rootArr) rootToNodeId.delete(r);
+      rootToNodeId.set(find(mainRoot), newId);
+    }
+  }
+
+  const minT = globalSnapshots[0].t;
+  const maxT = globalSnapshots[globalSnapshots.length - 1].t;
+  Object.assign(_sankeyCache, { nodes, minT, maxT, lastSnapCount: snapCount, nPieces });
+  return _sankeyCache;
+}
+
+// Recursively assigns absolute-canvas Y positions to Sankey nodes.
+// Root spans [y0, y1]; children are split proportionally by their size.
+function _assignSankeyY(node, nodes, y0, y1) {
+  node._y0 = y0;
+  node._y1 = y1;
+  if (!node.childIds || node.childIds.length === 0) return;
+  const children = node.childIds
+    .map(id => nodes.get(id)).filter(Boolean)
+    .sort((a, b) => a.birthT - b.birthT);
+  let y = y0;
+  for (const child of children) {
+    const childH = (child.size / node.size) * (y1 - y0);
+    _assignSankeyY(child, nodes, y, y + childH);
+    y += childH;
+  }
+}
+
+// Assigns stable colors to Sankey nodes: unique palette color for each leaf group
+// (fresh join), weighted-average blend of children's colors for merge nodes.
+function _computeSankeyColors(nodes) {
+  if (_sankeyNodeColorsSnapCount === nodes.size) return;
+  _sankeyNodeColors = new Map();
+  _sankeyNodeColorsSnapCount = nodes.size;
+  let pi = 0;
+  const vis = new Set();
+  function assign(node) {
+    if (vis.has(node.id)) return;
+    vis.add(node.id);
+    if (!node.childIds || node.childIds.length === 0) {
+      _sankeyNodeColors.set(node.id, _sankeyPalette[pi++ % _sankeyPalette.length]);
+    } else {
+      for (const cid of node.childIds) { const c = nodes.get(cid); if (c) assign(c); }
+      let r = 0, g = 0, b = 0, tot = 0;
+      for (const cid of node.childIds) {
+        const c = nodes.get(cid);
+        const cc = _sankeyNodeColors.get(cid) || [180, 180, 180];
+        const sz = c ? c.size : 1;
+        r += cc[0] * sz; g += cc[1] * sz; b += cc[2] * sz; tot += sz;
+      }
+      _sankeyNodeColors.set(node.id, tot > 0
+        ? [r / tot, g / tot, b / tot]
+        : _sankeyPalette[pi++ % _sankeyPalette.length]);
+    }
+  }
+  for (const node of nodes.values()) assign(node);
 }
 
 function drawFirstConnectionPanel(x, y, w, h, rows, cols, lookup, pieces) {
@@ -4606,6 +4750,24 @@ function drawFirstConnectionPanel(x, y, w, h, rows, cols, lookup, pieces) {
     }
   }
 
+  // === SANKEY GROUP HOVER HIGHLIGHT ===
+  // (_sankeyHoveredPieces is set by _drawGroupSankeyDiagram in the same frame's lower half;
+  //  here we use the value from the previous frame — 1-frame lag is imperceptible)
+  if (_firstConnSelectedIdx === null && _sankeyHoveredPieces && _sankeyHoveredPieces.size > 0) {
+    push(); noStroke(); fill(255, 255, 255, 140);
+    for (const [idx, b] of pieceBoundsMap) {
+      if (_sankeyHoveredPieces.has(idx)) continue;
+      rect(b.x, b.y, b.w, b.h);
+    }
+    pop();
+    push(); noFill(); stroke(215, 120, 30); strokeWeight(1.5);
+    for (const idx of _sankeyHoveredPieces) {
+      const b = pieceBoundsMap.get(idx);
+      if (b) rect(b.x + 1, b.y + 1, b.w - 2, b.h - 2, 2);
+    }
+    pop();
+  }
+
   // === RANK BADGES (on top of everything, only selected + partners) ===
   push();
   if (_firstConnSelectedIdx !== null) {
@@ -4676,211 +4838,183 @@ function drawFirstConnectionPanel(x, y, w, h, rows, cols, lookup, pieces) {
   line(gripCX - 18, dividerY - 2, gripCX + 18, dividerY - 2);
   pop();
 
-  // === GROUP GROWTH DIAGRAM ===
-  _drawGroupGrowthDiagram(x, dividerY, w, stripH, rows * cols, colorFunc);
+  // === GROUP SANKEY DIAGRAM ===
+  _drawGroupSankeyDiagram(x, dividerY, w, stripH, rows * cols, colorFunc);
 
   pop();
 }
 
-// Dual-curve chart: X = time, Y = piece count (0–N).
-// Blue line  = nGroups (starts high, falls as pieces merge).
-// Orange line = maxGroupSize (starts low, rises as the biggest cluster grows).
-// They cross in an X shape at the puzzle's "inflection point".
-function _drawGroupGrowthDiagram(x, y, w, h, nPieces, colorFunc) {
-  // Header + separator
+// Group growth line chart:
+// – blue line: nRealGroups = groups with ≥2 connected pieces (0 at start)
+// – orange line: maxSize2 = size of the largest such group (0 at start)
+// – scrubber, piece marker, off-grid marker, hover crosshair + tooltip
+function _drawGroupSankeyDiagram(x, y, w, h, nPieces, colorFunc) {
+  // Title + separator
   push();
-  fill(80); textSize(12); textAlign(LEFT, BOTTOM);
+  fill(80); textSize(12); textAlign(LEFT, BOTTOM); noStroke();
   text(t('connDashboardGrowthTitle') || 'Csoport-növekedés', x + 5, y - 2);
-  stroke(220); strokeWeight(1); noFill();
+  stroke(200); strokeWeight(1); noFill();
   line(x + 5, y, x + w - 5, y);
   pop();
 
   const timeline = _computeGroupTimeline(nPieces);
-  if (!timeline || timeline.length < 2) return;
+  if (!timeline || timeline.length === 0) {
+    push(); fill(160); noStroke(); textSize(11); textAlign(CENTER, CENTER);
+    text(t('connDashboardConnNoData') || 'No data yet.', x + w / 2, y + h / 2);
+    pop();
+    _sankeyHoveredPieces = null;
+    return;
+  }
 
-  const headerH = 48;
-  const footerH = 28;
-  const padL = 32, padR = 8;
+  const headerH = 44, footerH = 30;
+  const padL = 36, padR = 36;
   const availH = Math.max(10, h - headerH - footerH);
   const availW = w - padL - padR;
   const drawX  = x + padL;
   const drawY  = y + headerH;
-
-  const minT      = timeline[0].t;
-  const maxT      = timeline[timeline.length - 1].t;
+  const minT = timeline[0].t;
+  const maxT = timeline[timeline.length - 1].t;
   const timeRange = maxT > minT ? maxT - minT : 1;
-  const xScale = ts => drawX + ((ts - minT) / timeRange) * availW;
-  const yVal   = v  => drawY + (1 - v / nPieces) * availH;
+  const xScale  = ts => drawX + ((ts - minT) / timeRange) * availW;
+  const maxGroups = Math.max(1, ...timeline.map(pt => pt.nRealGroups));
+  const yScaleG = v => drawY + availH - (v / maxGroups) * availH;  // left axis: group count
+  const yScaleS = v => drawY + availH - (v / nPieces) * availH;    // right axis: max size
   _growthCurveBounds = { drawX, drawY, availW, availH, minT, maxT, timeRange };
 
-  // Subsample for rendering performance
-  let pts = timeline;
-  if (pts.length > 400) {
-    const skip = Math.ceil(pts.length / 400);
-    pts = pts.filter((_, i) => i % skip === 0 || i === pts.length - 1);
+  // === WHITE BACKGROUND ===
+  push(); fill(255); noStroke(); rect(drawX, drawY, availW, availH); pop();
+
+  // === LIGHT HORIZONTAL GRID ===
+  push(); stroke(230); strokeWeight(0.5); noFill();
+  for (const frac of [0.25, 0.5, 0.75]) line(drawX, drawY + frac * availH, drawX + availW, drawY + frac * availH);
+  pop();
+
+  // === SCRUBBER TINT (behind lines) ===
+  if (_growthCurveTimeFilter !== null && _growthCurveTimeFilter >= minT && _growthCurveTimeFilter <= maxT) {
+    push(); noStroke(); fill(120, 80, 200, 18);
+    rect(drawX, drawY, xScale(_growthCurveTimeFilter) - drawX, availH); pop();
   }
 
-  const blueC   = [50, 130, 240];
-  const orangeC = [220, 105, 25];
+  // === OFF-GRID HIGHLIGHT TINT (behind lines) ===
+  if (_offgridSelectedJoinTime !== null && _offgridSelectedJoinTime >= minT && _offgridSelectedJoinTime <= maxT) {
+    const hasInterval = _offgridSelectedJoinTimeEnd !== null && _offgridSelectedJoinTimeEnd > _offgridSelectedJoinTime;
+    if (hasInterval) {
+      const ox1 = xScale(_offgridSelectedJoinTime);
+      const ox2 = xScale(Math.min(_offgridSelectedJoinTimeEnd, maxT));
+      push(); noStroke(); fill(210, 120, 50, 30); rect(ox1, drawY, ox2 - ox1, availH); pop();
+    }
+  }
 
-  // Horizontal grid lines at 25 / 50 / 75 %
-  push(); stroke(225); strokeWeight(0.5); noFill();
-  for (const frac of [0.25, 0.5, 0.75]) {
-    line(drawX, drawY + (1 - frac) * availH, drawX + availW, drawY + (1 - frac) * availH);
+  // === FILLED AREA — blue (nRealGroups) ===
+  push(); fill(70, 130, 200, 45); noStroke();
+  beginShape();
+  vertex(drawX, drawY + availH);
+  for (const pt of timeline) vertex(xScale(pt.t), yScaleG(pt.nRealGroups));
+  vertex(xScale(maxT), drawY + availH);
+  endShape(CLOSE); pop();
+
+  // === FILLED AREA — orange (maxSize2) ===
+  push(); fill(215, 130, 50, 45); noStroke();
+  beginShape();
+  vertex(drawX, drawY + availH);
+  for (const pt of timeline) vertex(xScale(pt.t), yScaleS(pt.maxSize2));
+  vertex(xScale(maxT), drawY + availH);
+  endShape(CLOSE); pop();
+
+  // === LINE — blue (nRealGroups) ===
+  push(); stroke(70, 130, 200); strokeWeight(2); noFill();
+  beginShape();
+  for (const pt of timeline) vertex(xScale(pt.t), yScaleG(pt.nRealGroups));
+  endShape(); pop();
+
+  // === LINE — orange (maxSize2) ===
+  push(); stroke(215, 130, 50); strokeWeight(2); noFill();
+  beginShape();
+  for (const pt of timeline) vertex(xScale(pt.t), yScaleS(pt.maxSize2));
+  endShape(); pop();
+
+  // === CHART BORDER ===
+  push(); stroke(210); strokeWeight(1); noFill();
+  rect(drawX, drawY, availW, availH); pop();
+
+  // === Y-AXIS LABELS — left (blue: group count, 0..maxGroups) ===
+  push(); fill(70, 130, 200, 200); noStroke(); textSize(9); textAlign(RIGHT, CENTER);
+  const gStep = Math.max(1, Math.ceil(maxGroups / 5));
+  for (let v = 0; v <= maxGroups; v += gStep) {
+    const ly = yScaleG(v);
+    if (ly >= drawY - 5 && ly <= drawY + availH + 5) text(v, drawX - 4, ly);
+  }
+  pop();
+  // === Y-AXIS LABELS — right (orange: max size, 0..nPieces) ===
+  push(); fill(215, 130, 50, 200); noStroke(); textSize(9); textAlign(LEFT, CENTER);
+  const sStep = Math.max(1, Math.ceil(nPieces / 5));
+  for (let v = 0; v <= nPieces; v += sStep) {
+    const ry = yScaleS(v);
+    if (ry >= drawY - 5 && ry <= drawY + availH + 5) text(v, drawX + availW + 4, ry);
   }
   pop();
 
-  // Orange fill: below maxSize line (growing area)
-  push(); noStroke(); fill(...orangeC, 30);
-  beginShape();
-  vertex(xScale(pts[0].t), drawY + availH);
-  for (const pt of pts) vertex(xScale(pt.t), yVal(pt.maxSize));
-  vertex(xScale(pts[pts.length - 1].t), drawY + availH);
-  endShape(CLOSE);
-  pop();
-
-  // Blue fill: above nGroups line (shrinking area)
-  push(); noStroke(); fill(...blueC, 25);
-  beginShape();
-  vertex(xScale(pts[0].t), drawY);
-  for (const pt of pts) vertex(xScale(pt.t), yVal(pt.nGroups));
-  vertex(xScale(pts[pts.length - 1].t), drawY);
-  endShape(CLOSE);
-  pop();
-
-  // nGroups line (blue)
-  push(); noFill(); stroke(...blueC); strokeWeight(2);
-  beginShape();
-  for (const pt of pts) vertex(xScale(pt.t), yVal(pt.nGroups));
-  endShape();
-  pop();
-
-  // maxSize line (orange)
-  push(); noFill(); stroke(...orangeC); strokeWeight(2);
-  beginShape();
-  for (const pt of pts) vertex(xScale(pt.t), yVal(pt.maxSize));
-  endShape();
-  pop();
+  // === SCRUBBER LINE + LABEL ===
+  if (_growthCurveTimeFilter !== null && _growthCurveTimeFilter >= minT && _growthCurveTimeFilter <= maxT) {
+    const fx = xScale(_growthCurveTimeFilter);
+    push(); stroke(120, 80, 200); strokeWeight(1.5);
+    drawingContext.setLineDash([3, 3]);
+    line(fx, drawY, fx, drawY + availH);
+    drawingContext.setLineDash([]); pop();
+    push(); fill(120, 80, 200); noStroke();
+    triangle(fx - 5, drawY - 5, fx + 5, drawY - 5, fx, drawY + 3); pop();
+    const fsec = Math.round((_growthCurveTimeFilter - minT) / 1000);
+    push(); fill(80, 50, 170); noStroke(); textSize(10); textAlign(CENTER, BOTTOM);
+    text(`${fsec}s`, fx, drawY - 33); pop();
+  }
 
   // === SELECTED PIECE MARKER ===
   if (_firstConnSelectedIdx !== null && _firstConnCache && _firstConnCache.firstConnTime) {
     const connT = _firstConnCache.firstConnTime.get(_firstConnSelectedIdx);
     if (connT != null && connT >= minT && connT <= maxT) {
-      const mx = xScale(connT);
-      // Vertical dashed line
-      push();
-      stroke(60, 60, 60); strokeWeight(1.5);
+      const mxSel = xScale(connT);
+      push(); stroke(80, 80, 80); strokeWeight(1.5);
       drawingContext.setLineDash([4, 3]);
-      line(mx, drawY, mx, drawY + availH);
-      drawingContext.setLineDash([]);
-      pop();
-      // Find closest sampled point for dot y-values
-      const closest = pts.reduce((best, pt) =>
-        Math.abs(pt.t - connT) < Math.abs(best.t - connT) ? pt : best);
-      // Blue dot on nGroups curve
-      push(); fill(...blueC); stroke(255); strokeWeight(1.5);
-      circle(mx, yVal(closest.nGroups), 7);
-      pop();
-      // Orange dot on maxSize curve
-      push(); fill(...orangeC); stroke(255); strokeWeight(1.5);
-      circle(mx, yVal(closest.maxSize), 7);
-      pop();
-      // Time label above the line (row 2 — middle, 15px above off-grid row 3)
-      push(); fill(60); noStroke(); textSize(10); textAlign(CENTER, BOTTOM);
+      line(mxSel, drawY, mxSel, drawY + availH);
+      drawingContext.setLineDash([]); pop();
       const sec = Math.round((connT - minT) / 1000);
-      text(`${sec}s`, mx, drawY - 18);
-      pop();
+      push(); fill(80); noStroke(); textSize(10); textAlign(CENTER, BOTTOM);
+      text(`${sec}s`, mxSel, drawY - 18); pop();
     }
   }
 
-  // === TIME FILTER SCRUBBER ===
-  if (_growthCurveTimeFilter !== null && _growthCurveTimeFilter >= minT && _growthCurveTimeFilter <= maxT) {
-    const fx = xScale(_growthCurveTimeFilter);
-    // Shaded "past" region
-    push(); noStroke(); fill(120, 80, 200, 22);
-    rect(drawX, drawY, fx - drawX, availH);
-    pop();
-    // Vertical line
-    push();
-    stroke(120, 80, 200); strokeWeight(1.5);
-    drawingContext.setLineDash([3, 3]);
-    line(fx, drawY, fx, drawY + availH);
-    drawingContext.setLineDash([]);
-    pop();
-    // Triangle scrubber handle at top of chart
-    push(); fill(120, 80, 200); noStroke();
-    triangle(fx - 5, drawY - 5, fx + 5, drawY - 5, fx, drawY + 3);
-    pop();
-    // Time label above handle (row 1 — topmost, 15px above selected-piece row 2)
-    const fsec = Math.round((_growthCurveTimeFilter - minT) / 1000);
-    push(); fill(100, 60, 180); noStroke(); textSize(10); textAlign(CENTER, BOTTOM);
-    text(`${fsec}s`, fx, drawY - 33);
-    pop();
-  }
-
-  // === OFFGRID GROUP MARKER ===
+  // === OFF-GRID GROUP MARKER (lines + label) ===
   if (_offgridSelectedJoinTime !== null && _offgridSelectedJoinTime >= minT && _offgridSelectedJoinTime <= maxT) {
     const ox1 = xScale(_offgridSelectedJoinTime);
     const hasInterval = _offgridSelectedJoinTimeEnd !== null && _offgridSelectedJoinTimeEnd > _offgridSelectedJoinTime;
     const ox2 = hasInterval ? xScale(Math.min(_offgridSelectedJoinTimeEnd, maxT)) : ox1;
-
     if (hasInterval) {
-      // Wide semi-transparent band spanning the full growth interval
-      push(); noStroke(); fill(220, 100, 30, 35);
-      rect(ox1, drawY, ox2 - ox1, availH);
-      pop();
-      // Left border (first piece joins) and right border (last piece joins)
-      push(); stroke(220, 100, 30); strokeWeight(1.5); noFill();
+      push(); stroke(200, 80, 20); strokeWeight(1.5); noFill();
       line(ox1, drawY, ox1, drawY + availH);
-      line(ox2, drawY, ox2, drawY + availH);
-      pop();
-      // Top bracket connecting the two borders
-      push(); stroke(220, 100, 30); strokeWeight(2);
+      line(ox2, drawY, ox2, drawY + availH); pop();
+      push(); stroke(200, 80, 20); strokeWeight(2);
       line(ox1, drawY + 1, ox2, drawY + 1);
-      pop();
-      // Small tick handles at bracket ends
-      push(); stroke(220, 100, 30); strokeWeight(2);
       line(ox1, drawY + 1, ox1, drawY + 7);
-      line(ox2, drawY + 1, ox2, drawY + 7);
-      pop();
-      // Interval label centered above the bracket
+      line(ox2, drawY + 1, ox2, drawY + 7); pop();
       const s1 = Math.round((_offgridSelectedJoinTime - minT) / 1000);
       const s2 = Math.round((_offgridSelectedJoinTimeEnd - minT) / 1000);
-      push(); fill(180, 70, 20); noStroke(); textSize(10); textAlign(CENTER, BOTTOM);
-      text(`${s1}s – ${s2}s`, (ox1 + ox2) / 2, drawY - 3);
-      pop();
+      push(); fill(175, 65, 10); noStroke(); textSize(10); textAlign(CENTER, BOTTOM);
+      text(`${s1}s \u2013 ${s2}s`, (ox1 + ox2) / 2, drawY - 3); pop();
     } else {
-      // Single point: narrow band + line + diamond handle
-      push(); noStroke(); fill(220, 100, 30, 50);
-      rect(ox1 - 4, drawY, 8, availH);
-      pop();
-      push(); stroke(220, 100, 30); strokeWeight(2); noFill();
-      line(ox1, drawY, ox1, drawY + availH);
-      pop();
-      push(); fill(220, 100, 30); noStroke();
-      quad(ox1, drawY - 7, ox1 + 5, drawY - 1, ox1, drawY + 5, ox1 - 5, drawY - 1);
-      pop();
+      push(); noStroke(); fill(200, 80, 20, 38);
+      rect(ox1 - 4, drawY, 8, availH); pop();
+      push(); stroke(200, 80, 20); strokeWeight(2); noFill();
+      line(ox1, drawY, ox1, drawY + availH); pop();
+      push(); fill(200, 80, 20); noStroke();
+      quad(ox1, drawY - 7, ox1 + 5, drawY - 1, ox1, drawY + 5, ox1 - 5, drawY - 1); pop();
       const osec = Math.round((_offgridSelectedJoinTime - minT) / 1000);
-      push(); fill(180, 70, 20); noStroke(); textSize(10); textAlign(CENTER, BOTTOM);
-      text(`${osec}s`, ox1, drawY - 10);
-      pop();
+      push(); fill(175, 65, 10); noStroke(); textSize(10); textAlign(CENTER, BOTTOM);
+      text(`${osec}s`, ox1, drawY - 10); pop();
     }
   }
 
-  // Chart border
-  push(); stroke(200); strokeWeight(1); noFill();
-  rect(drawX, drawY, availW, availH);
-  pop();
-
-  // Y axis labels (left side)
-  push(); fill(155); noStroke(); textSize(9); textAlign(RIGHT, CENTER);
-  for (const frac of [0, 0.25, 0.5, 0.75, 1]) {
-    text(Math.round(frac * nPieces), drawX - 5, drawY + (1 - frac) * availH);
-  }
-  pop();
-
-  // Time axis labels (bottom)
-  push(); fill(140); noStroke(); textSize(10);
+  // === TIME AXIS LABELS ===
+  push(); fill(155); noStroke(); textSize(10);
   const nLabels = Math.min(5, Math.max(2, Math.floor(availW / 62)));
   for (let i = 0; i <= nLabels; i++) {
     const tx  = drawX + (i / nLabels) * availW;
@@ -4890,26 +5024,85 @@ function _drawGroupGrowthDiagram(x, y, w, h, nPieces, colorFunc) {
   }
   pop();
 
-  // Legend: line swatches
-  const legY = drawY + availH + 18;
-  push(); noFill(); textSize(10);
-  stroke(...blueC); strokeWeight(2);
-  line(drawX, legY, drawX + 17, legY);
-  noStroke(); fill(90); textAlign(LEFT, CENTER);
-  text(t('growthGroups') || 'csoportok száma ↓', drawX + 21, legY);
-  const legX2 = drawX + availW * 0.5;
-  stroke(...orangeC); strokeWeight(2); noFill();
-  line(legX2, legY, legX2 + 17, legY);
-  noStroke(); fill(90);
-  text(t('growthMaxSize') || 'legnagyobb csoport ↑', legX2 + 21, legY);
+  // === LEGEND ===
+  const legY = drawY + availH + footerH / 2 + 4;
+  const legCx = drawX + availW / 2;
+  push(); textSize(10); noStroke(); rectMode(CORNER);
+  fill(70, 130, 200); rect(legCx - 108, legY - 1, 18, 3);
+  fill(70); textAlign(LEFT, CENTER);
+  text(t('growthGroups') || 'csoportok sz\u00e1ma', legCx - 86, legY);
+  fill(215, 130, 50); rect(legCx + 14, legY - 1, 18, 3);
+  fill(70); text(t('growthMaxSize') || 'legnagyobb csoport', legCx + 36, legY);
   pop();
+
+  // === HOVER CROSSHAIR + TOOLTIP ===
+  _sankeyHoveredPieces = null;
+  if (mouseX >= drawX && mouseX <= drawX + availW && mouseY >= drawY && mouseY <= drawY + availH) {
+    const hoverT = minT + ((mouseX - drawX) / availW) * timeRange;
+    let bestIdx = 0, bestDist = Infinity;
+    for (let i = 0; i < timeline.length; i++) {
+      const d = Math.abs(timeline[i].t - hoverT);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    const pt = timeline[bestIdx];
+    const hx = xScale(pt.t);
+
+    push(); stroke(170); strokeWeight(1);
+    drawingContext.setLineDash([2, 3]);
+    line(hx, drawY, hx, drawY + availH);
+    drawingContext.setLineDash([]);
+    fill(70, 130, 200); noStroke(); circle(hx, yScaleG(pt.nRealGroups), 6);
+    fill(215, 130, 50); noStroke(); circle(hx, yScaleS(pt.maxSize2), 6);
+    pop();
+
+    const sec = Math.round((pt.t - minT) / 1000);
+    const tipLines = [
+      `t = ${sec}s`,
+      `${t('growthGroups') || 'csoportok'}: ${pt.nRealGroups}`,
+      `${t('growthMaxSize') || 'legnagyobb'}: ${pt.maxSize2}`,
+    ];
+    const tipW = 160, tipLineH = 17, tipPad = 7;
+    const tipH = tipLines.length * tipLineH + tipPad * 2;
+    const tipX = Math.min(mouseX + 12, drawX + availW - tipW - 4);
+    const tipY = Math.max(drawY + 4, mouseY - tipH - 8);
+    push();
+    fill(255, 255, 255, 242); stroke(200); strokeWeight(1);
+    rect(tipX, tipY, tipW, tipH, 3);
+    textSize(11); noStroke(); textAlign(LEFT, TOP);
+    fill(120); text(tipLines[0], tipX + tipPad, tipY + tipPad);
+    fill(70, 130, 200); text(tipLines[1], tipX + tipPad, tipY + tipPad + tipLineH);
+    fill(215, 130, 50); text(tipLines[2], tipX + tipPad, tipY + tipPad + tipLineH * 2);
+    pop();
+  }
+}
+
+// Returns a hover-zone key for the group growth chart area.
+// Returns a per-pixel-X key inside the chart so mouseMoved triggers smooth tooltip updates.
+export function computeSankeyHoverKey(mx, my) {
+  if (!_growthCurveBounds) return 'o';
+  const { drawX, drawY, availW, availH } = _growthCurveBounds;
+  if (mx < drawX || mx > drawX + availW || my < drawY || my > drawY + availH) return 'o';
+  return `c${Math.floor(mx)}`;
 }
 
 export function handleFirstConnClick(mx, my) {
-  // Curve scrubber: click inside the dual-curve chart area sets the time filter
+  // Sankey diagram / scrubber area
   if (_growthCurveBounds) {
     const { drawX, drawY, availW, availH, minT, maxT, timeRange } = _growthCurveBounds;
     if (mx >= drawX && mx <= drawX + availW && my >= drawY && my <= drawY + availH) {
+      // Check Sankey band click first: toggle piece-group selection in the heatmap
+      if (_sankeyCache.nodes) {
+        for (const node of _sankeyCache.nodes.values()) {
+          const nx1 = drawX + ((node.birthT - minT) / timeRange) * availW;
+          const nx2 = drawX + (((node.deathT !== null ? Math.min(node.deathT, maxT) : maxT) - minT) / timeRange) * availW;
+          if (mx >= nx1 && mx <= nx2 && my >= node._y0 && my <= node._y1) {
+            const firstPiece = node.pieces[0];
+            _firstConnSelectedIdx = (_firstConnSelectedIdx === firstPiece) ? null : firstPiece;
+            return true;
+          }
+        }
+      }
+      // No band hit → set/clear the time-filter scrubber
       const clickedT = minT + ((mx - drawX) / availW) * timeRange;
       _growthCurveTimeFilter = (_growthCurveTimeFilter !== null &&
         Math.abs(_growthCurveTimeFilter - clickedT) < timeRange * 0.015)
