@@ -947,6 +947,8 @@ function tryMergeGroupsOnRelease(g) {
       if (gameSettings.rotationEnabled && !p.isCorrectOrientation()) {
         continue;
       }
+      // Don't use solved (grid-placed) pieces as merge anchors
+      if (p.solved) continue;
 
       for (const np of pieces) {
         if (!np || np.group === g) continue;
@@ -955,6 +957,8 @@ function tryMergeGroupsOnRelease(g) {
         if (gameSettings.rotationEnabled && !np.isCorrectOrientation()) {
           continue;
         }
+        // Don't merge solved (grid-placed) pieces into unsolved groups
+        if (np.solved) continue;
 
         // only consider orthogonal neighbors
         const dr = np.r - p.r, dc = np.c - p.c;
@@ -2464,6 +2468,16 @@ export function wireControls() {
       }
     }
     for (const p of g.members) if (p.solved) mergeWithSolvedNeighbors(p);
+    // Remove zombie groups created by mergeWithSolvedNeighbors: it merges group
+    // objects but never removes the old group from window.__groups, so those
+    // stale groups can still be hit-tested and inadvertently dragged, moving
+    // already-solved pieces.
+    window.__groups = (window.__groups || []).filter(grp => {
+      for (const m of grp.members) {
+        if (m.group === grp) return true;
+      }
+      return false;
+    });
     // try merging with neighboring groups/pieces even if not placed in final target
     tryMergeGroupsOnRelease(g);
 
