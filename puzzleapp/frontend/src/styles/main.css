@@ -12,7 +12,7 @@ header h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.2px; }
 .timer-display { font-variant-numeric: tabular-nums; padding:2px 8px; border:1px solid #e5e5ea; border-radius:999px; background:#f7f7f9; }
 .timer-hidden { display:none; }
 .lang-switch { display:flex; gap:6px; }
-.lang-btn { border:1px solid #d0d0d5; background:#fff; border-radius:999px; padding:4px 6px; cursor:pointer; font-size:14px; line-height:1; }
+.lang-btn { border:1px solid #d0d0d5; background:#fff; border-radius:999px; padding:4px 8px; cursor:pointer; font-size:13px; line-height:1; font-family:Arial, sans-serif; font-weight:600; min-width:36px; text-align:center; }
 .lang-btn.active { border-color:#111; box-shadow:0 2px 6px rgba(0,0,0,.12); }
 #root { display:grid; grid-template-columns: 1fr var(--sidebar-w); min-height: calc(100vh - 56px); }
 #stage { padding:16px; display:flex; justify-content:center; align-items:stretch; }
