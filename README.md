@@ -108,23 +108,26 @@ The analytical components are located in:
 
 ## Related Publication & Citation
 
-The manuscript associated with this repository has been **accepted for publication** in the *Eurasian Journal of Mathematical and Computer Applications*.
+The research associated with this repository was published in the *Eurasian Journal of Mathematical and Computer Applications*.
 
-**Bence Dániel Erős and Roland Kunkli**  
+**Bence Daniel Eros and Roland Kunkli**  
 *FragmentVis: Data Visualization-Based Analysis of Puzzle Players' Solution Strategies*  
-*Eurasian Journal of Mathematical and Computer Applications*  
-**Accepted for publication.**
+*Eurasian Journal of Mathematical and Computer Applications*, **14**(3), 25–45, 2026.  
+[https://doi.org/10.32523/2306-6172-2026-14-3-25-45](https://doi.org/10.32523/2306-6172-2026-14-3-25-45)
 
 If you use FragmentVis or build upon the methods implemented in this repository, please cite the associated paper as follows:
 
 ```bibtex
-@article{eros_kunkli_fragmentvis,
-  author  = {Er{\H{o}}s, Bence D{\'a}niel and Kunkli, Roland},
+@article{eros2026fragmentvis,
+  author  = {Eros, Bence Daniel and Kunkli, Roland},
   title   = {{FragmentVis: Data Visualization-Based Analysis of Puzzle Players' Solution Strategies}},
   journal = {Eurasian Journal of Mathematical and Computer Applications},
-  note    = {Accepted for publication}
-}
-```
+  year    = {2026},
+  volume  = {14},
+  number  = {3},
+  pages   = {25--45},
+  doi     = {10.32523/2306-6172-2026-14-3-25-45}
+}```
 
 ## Institution
 
