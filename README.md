@@ -127,7 +127,8 @@ If you use FragmentVis or build upon the methods implemented in this repository,
   number  = {3},
   pages   = {25--45},
   doi     = {10.32523/2306-6172-2026-14-3-25-45}
-}```
+}
+```
 
 ## Institution
 
